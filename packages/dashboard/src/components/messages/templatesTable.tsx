@@ -5,6 +5,7 @@ import {
   Computer,
   ContentCopy as ContentCopyIcon,
   Delete as DeleteIcon,
+  Folder as FolderIcon,
   Home,
   KeyboardArrowLeft,
   KeyboardArrowRight,
@@ -49,6 +50,7 @@ import {
   getCoreRowModel,
   getPaginationRowModel,
   getSortedRowModel,
+  OnChangeFn,
   SortingState,
   useReactTable,
 } from "@tanstack/react-table";
@@ -58,6 +60,7 @@ import { assertUnreachable } from "isomorphic-lib/src/typeAssertions";
 import {
   ChannelType,
   CompletionStatus,
+  ContentFolderResourceTypeEnum,
   DuplicateResourceTypeEnum,
   EmailContentsType,
   MessageTemplateConfiguration,
@@ -77,12 +80,23 @@ import {
   useDeleteMessageTemplateMutation,
 } from "../../lib/useDeleteMessageTemplateMutation";
 import { useDuplicateResourceMutation } from "../../lib/useDuplicateResourceMutation";
+import {
+  ALL_FOLDERS_FILTER,
+  ROOT_FOLDER_FILTER,
+  useContentFoldersQuery,
+  useMoveToFolderMutation,
+} from "../../lib/useContentFolders";
 import { useMessageTemplatesQuery } from "../../lib/useMessageTemplatesQuery";
 import {
   UpsertMessageTemplateParams,
   useMessageTemplateUpdateMutation,
 } from "../../lib/useMessageTemplateUpdateMutation";
 import { useResourcesQuery } from "../../lib/useResourcesQuery";
+import {
+  FolderFilterSelect,
+  FolderGroupHeaderRow,
+  MoveToFolderDialog,
+} from "../folders/folderControls";
 import { GreyButton, greyButtonStyle } from "../greyButtonStyle";
 import { RelatedResourceSelect } from "../resourceTable";
 
@@ -165,6 +179,7 @@ function ActionsCell({ row, table }: CellContext<Row, unknown>) {
   // Access functions from table meta
   const deleteMessageTemplate = table.options.meta?.deleteMessageTemplate;
   const duplicateMessageTemplate = table.options.meta?.duplicateMessageTemplate;
+  const moveTemplateToFolder = table.options.meta?.moveTemplateToFolder;
   const isDeleting = table.options.meta?.isDeletingTemplateId === rowId;
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -229,6 +244,15 @@ function ActionsCell({ row, table }: CellContext<Row, unknown>) {
         transformOrigin={{ vertical: "top", horizontal: "right" }}
         PaperProps={{ sx: { borderRadius: 1, boxShadow: theme.shadows[2] } }}
       >
+        <MenuItem
+          onClick={() => {
+            moveTemplateToFolder?.(row.original);
+            handleClose();
+          }}
+        >
+          <FolderIcon fontSize="small" sx={{ mr: 1 }} />
+          Move to folder
+        </MenuItem>
         <MenuItem onClick={handleDuplicate}>
           <ContentCopyIcon fontSize="small" sx={{ mr: 1 }} />
           Duplicate
@@ -371,7 +395,11 @@ export default function TemplatesTable({
 
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "folderId", desc: false },
+  ]);
+  const [folderFilter, setFolderFilter] = useState(ALL_FOLDERS_FILTER);
+  const [moveTarget, setMoveTarget] = useState<Row | null>(null);
 
   // Dialog state for creating new templates
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -388,6 +416,34 @@ export default function TemplatesTable({
   const messageTemplatesQuery = useMessageTemplatesQuery({
     resourceType: ResourceTypeEnum.Declarative,
   });
+
+  // Fetch folders for filtering / grouping / moving
+  const foldersQuery = useContentFoldersQuery({
+    resourceType: ContentFolderResourceTypeEnum.Template,
+  });
+  const folders = useMemo(() => foldersQuery.data ?? [], [foldersQuery.data]);
+  const folderNameById = useMemo(
+    () => new Map(folders.map((folder) => [folder.id, folder.name])),
+    [folders],
+  );
+  const folderRank = useMemo(
+    () => new Map(folders.map((folder, index) => [folder.id, index])),
+    [folders],
+  );
+
+  const moveToFolderMutation = useMoveToFolderMutation(
+    ContentFolderResourceTypeEnum.Template,
+    {
+      onSuccess: () => {
+        setSnackbarMessage("Template moved to folder.");
+        setSnackbarOpen(true);
+      },
+      onError: () => {
+        setSnackbarMessage("Failed to move template to folder.");
+        setSnackbarOpen(true);
+      },
+    },
+  );
 
   // Fetch journeys to link to templates
   const { data: resources } = useResourcesQuery({
@@ -455,6 +511,17 @@ export default function TemplatesTable({
       journeysUsedBy: journeysByTemplateId.get(template.id) ?? [],
     }));
   }, [messageTemplatesQuery.data, resources?.journeys, workspace]);
+
+  const visibleTemplatesData = useMemo(() => {
+    if (folderFilter === ALL_FOLDERS_FILTER) {
+      return templatesData;
+    }
+    return templatesData.filter((template) =>
+      folderFilter === ROOT_FOLDER_FILTER
+        ? !template.folderId
+        : template.folderId === folderFilter,
+    );
+  }, [templatesData, folderFilter]);
 
   const [pagination, setPagination] = useState({
     pageIndex: 0, // initial page index
@@ -559,6 +626,21 @@ export default function TemplatesTable({
   const columns = useMemo<ColumnDef<Row>[]>(
     () => [
       {
+        id: "folderId",
+        accessorFn: (row) => row.folderId ?? null,
+        header: () => null,
+        enableHiding: true,
+        sortingFn: (a, b) => {
+          const rankA = a.original.folderId
+            ? (folderRank.get(a.original.folderId) ?? Number.MAX_SAFE_INTEGER)
+            : Number.MAX_SAFE_INTEGER;
+          const rankB = b.original.folderId
+            ? (folderRank.get(b.original.folderId) ?? Number.MAX_SAFE_INTEGER)
+            : Number.MAX_SAFE_INTEGER;
+          return rankA - rankB;
+        },
+      },
+      {
         accessorKey: "name",
         header: "Name",
         cell: NameCell,
@@ -607,20 +689,31 @@ export default function TemplatesTable({
         enableSorting: false,
       },
     ],
-    [],
+    [folderRank],
   );
+
+  // Keep the hidden folderId column as the primary sort so that rows stay
+  // grouped under their folder headers.
+  const handleSortingChange: OnChangeFn<SortingState> = (updater) => {
+    setSorting((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      const userSorting = next.filter((s) => s.id !== "folderId");
+      return [{ id: "folderId", desc: false }, ...userSorting];
+    });
+  };
 
   const table = useReactTable({
     columns,
-    data: templatesData,
+    data: visibleTemplatesData,
     getSortedRowModel: getSortedRowModel(),
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     onPaginationChange: setPagination,
-    onSortingChange: setSorting,
+    onSortingChange: handleSortingChange,
     state: {
       pagination,
       sorting,
+      columnVisibility: { folderId: false },
     },
     meta: {
       deleteMessageTemplate: (variables: DeleteMessageTemplateVariables) => {
@@ -634,11 +727,55 @@ export default function TemplatesTable({
           resourceType: DuplicateResourceTypeEnum.MessageTemplate,
         });
       },
+      moveTemplateToFolder: (row: Row) => {
+        setMoveTarget(row);
+      },
       isDeletingTemplateId: deleteTemplateMutation.isPending
         ? deleteTemplateMutation.variables.id // Access id from variables
         : null,
     },
   });
+
+  const tableRowsWithFolders: React.ReactNode[] = [];
+  let lastFolderKey: string | null | undefined;
+  for (const row of table.getRowModel().rows) {
+    const folderKey = row.original.folderId ?? null;
+    if (folderKey !== lastFolderKey) {
+      tableRowsWithFolders.push(
+        <FolderGroupHeaderRow
+          key={`folder-header-${folderKey ?? "root"}`}
+          label={
+            folderKey
+              ? (folderNameById.get(folderKey) ?? "Unknown folder")
+              : "Unfiled"
+          }
+          colSpan={table.getVisibleLeafColumns().length}
+        />,
+      );
+      lastFolderKey = folderKey;
+    }
+    tableRowsWithFolders.push(
+      <TableRow
+        key={row.id}
+        hover
+        sx={{
+          "&:hover": {
+            backgroundColor: "action.hover",
+          },
+          height: ROW_HEIGHT, // Apply fixed row height
+        }}
+      >
+        {row.getVisibleCells().map((cell) => (
+          <TableCell
+            key={cell.id}
+            sx={{ height: "inherit" }} // Ensure cell respects row height
+          >
+            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+          </TableCell>
+        ))}
+      </TableRow>,
+    );
+  }
 
   const isFetching =
     messageTemplatesQuery.isFetching || messageTemplatesQuery.isLoading;
@@ -652,14 +789,22 @@ export default function TemplatesTable({
     <Stack spacing={2} sx={{ width: "100%", height: "100%" }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h4">Message Templates</Typography>
-        <Button
-          variant="contained"
-          onClick={() => setDialogOpen(true)}
-          startIcon={<AddIcon />}
-          sx={greyButtonStyle}
-        >
-          New Template
-        </Button>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <FolderFilterSelect
+            resourceType={ContentFolderResourceTypeEnum.Template}
+            folders={folders}
+            value={folderFilter}
+            onChange={setFolderFilter}
+          />
+          <Button
+            variant="contained"
+            onClick={() => setDialogOpen(true)}
+            startIcon={<AddIcon />}
+            sx={greyButtonStyle}
+          >
+            New Template
+          </Button>
+        </Stack>
       </Stack>
       <TableContainer component={Paper}>
         <Table stickyHeader>
@@ -719,28 +864,8 @@ export default function TemplatesTable({
             ))}
           </TableHead>
           <TableBody>
-            {table.getRowModel().rows.map((row) => (
-              <TableRow
-                key={row.id}
-                hover
-                sx={{
-                  "&:hover": {
-                    backgroundColor: "action.hover",
-                  },
-                  height: ROW_HEIGHT, // Apply fixed row height
-                }}
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <TableCell
-                    key={cell.id}
-                    sx={{ height: "inherit" }} // Ensure cell respects row height
-                  >
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </TableCell>
-                ))}
-              </TableRow>
-            ))}
-            {!isFetching && templatesData.length === 0 && (
+            {tableRowsWithFolders}
+            {!isFetching && visibleTemplatesData.length === 0 && (
               <TableRow sx={{ height: ROW_HEIGHT }}>
                 <TableCell colSpan={columns.length} align="center">
                   No message templates found.
@@ -944,6 +1069,24 @@ export default function TemplatesTable({
         </DialogActions>
       </Dialog>
 
+      <MoveToFolderDialog
+        open={moveTarget !== null}
+        onClose={() => setMoveTarget(null)}
+        folders={folders}
+        currentFolderId={moveTarget?.folderId ?? null}
+        resourceName={moveTarget?.name}
+        onConfirm={(folderId) => {
+          if (moveTarget) {
+            moveToFolderMutation.mutate({
+              id: moveTarget.id,
+              name: moveTarget.name,
+              folderId,
+            });
+          }
+          setMoveTarget(null);
+        }}
+      />
+
       <Snackbar
         open={snackbarOpen}
         autoHideDuration={6000}
@@ -961,6 +1104,7 @@ declare module "@tanstack/react-table" {
   interface TableMeta<TData = unknown> {
     deleteMessageTemplate?: (variables: DeleteMessageTemplateVariables) => void;
     duplicateMessageTemplate?: (templateName: string) => void;
+    moveTemplateToFolder?: (row: Row) => void;
     isDeletingTemplateId?: string | null; // To track which template is being deleted
   }
 }

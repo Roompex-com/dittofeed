@@ -62,6 +62,7 @@ export default async function journeysController(fastify: FastifyInstance) {
             resourceType: schema.journey.resourceType,
             statusUpdatedAt: schema.journey.statusUpdatedAt,
             canRunMultiple: schema.journey.canRunMultiple,
+            folderId: schema.journey.folderId,
           })
           .from(schema.journey)
           .where(and(...conditions));
@@ -75,6 +76,7 @@ export default async function journeysController(fastify: FastifyInstance) {
               status: j.status,
               updatedAt: j.updatedAt.getTime(),
               createdAt: j.createdAt.getTime(),
+              ...(j.folderId ? { folderId: j.folderId } : {}),
             },
           ];
         });

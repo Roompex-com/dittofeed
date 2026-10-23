@@ -148,6 +148,7 @@ export default function Configuration({
         return [
           { id: SmsProviderType.Twilio, label: "Twilio" },
           { id: SmsProviderType.SignalWire, label: "SignalWire" },
+          { id: SmsProviderType.Quo, label: "Quo" },
           { id: SmsProviderType.Test, label: "Test" },
         ];
       case ChannelType.Webhook:

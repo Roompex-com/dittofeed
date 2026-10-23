@@ -106,6 +106,9 @@ export async function getOrCreateSmsProviders({
       case SmsProviderType.SignalWire:
         type = SmsProviderType.SignalWire;
         break;
+      case SmsProviderType.Quo:
+        type = SmsProviderType.Quo;
+        break;
       default:
         logger().error(
           {

@@ -43,6 +43,7 @@ import {
 } from "./destinations/amazonses";
 import { sendMail as sendMailMailchimp } from "./destinations/mailchimp";
 import { sendMail as sendMailPostMark } from "./destinations/postmark";
+import { sendSms as sendSmsQuo } from "./destinations/quo";
 import {
   ResendRequiredData,
   sendMail as sendMailResend,
@@ -107,6 +108,7 @@ import {
   MobilePushProviderType,
   NonRetryableMessageSendFailure,
   ParsedWebhookBody,
+  QuoSecret,
   Secret,
   SignalWireSecret,
   SignalWireSenderOverrideType,
@@ -136,6 +138,7 @@ export function enrichMessageTemplate({
   workspaceId,
   definition,
   draft,
+  folderId,
   updatedAt,
 }: Overwrite<
   MessageTemplate,
@@ -168,6 +171,7 @@ export function enrichMessageTemplate({
     workspaceId,
     type,
     updatedAt: Number(updatedAt),
+    ...(folderId ? { folderId } : {}),
     ...(enrichedDefinition.value
       ? { definition: enrichedDefinition.value }
       : {}),
@@ -255,6 +259,7 @@ export async function upsertMessageTemplate(
               name: data.name,
               definition: data.definition,
               draft: data.draft,
+              folderId: data.folderId ?? null,
               resourceType: data.resourceType,
             })
             .returning(),
@@ -303,6 +308,7 @@ export async function upsertMessageTemplate(
             name: data.name,
             definition: data.definition,
             draft: requiresDraftReset ? null : data.draft,
+            ...(data.folderId !== undefined ? { folderId: data.folderId } : {}),
             resourceType: data.resourceType,
           })
           .where(eq(dbMessageTemplate.id, existingTemplate.id))
@@ -2068,6 +2074,76 @@ export async function sendSms(
             type: SmsProviderType.SignalWire,
             sid: result.value.sid,
             status: result.value.status,
+          },
+        },
+      });
+    }
+    case SmsProviderType.Quo: {
+      const configResult = schemaValidateWithErr(
+        parsedConfigResult.value,
+        QuoSecret,
+      );
+      if (configResult.isErr()) {
+        return err({
+          type: InternalEventType.BadWorkspaceConfiguration,
+          variant: {
+            type: BadWorkspaceConfigurationType.MessageServiceProviderMisconfigured,
+            message: configResult.error.message,
+          },
+        });
+      }
+
+      const { apiKey, from } = configResult.value;
+
+      if (!apiKey) {
+        return err({
+          type: InternalEventType.BadWorkspaceConfiguration,
+          variant: {
+            type: BadWorkspaceConfigurationType.MessageServiceProviderMisconfigured,
+            message: "missing apiKey in Quo provider config",
+          },
+        });
+      }
+
+      if (!from) {
+        return err({
+          type: InternalEventType.BadWorkspaceConfiguration,
+          variant: {
+            type: BadWorkspaceConfigurationType.MessageServiceProviderMisconfigured,
+            message: "missing from number in Quo provider config",
+          },
+        });
+      }
+
+      const result = await sendSmsQuo({
+        apiKey,
+        from,
+        body,
+        to,
+        workspaceId,
+        userId,
+        templateId,
+      });
+
+      if (result.isErr()) {
+        return err({
+          type: InternalEventType.MessageFailure,
+          variant: {
+            type: ChannelType.Sms,
+            provider: result.error,
+          },
+        });
+      }
+
+      return ok({
+        type: InternalEventType.MessageSent,
+        variant: {
+          type: ChannelType.Sms,
+          body,
+          to,
+          provider: {
+            type: SmsProviderType.Quo,
+            messageId: result.value.messageId,
           },
         },
       });

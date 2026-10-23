@@ -5,6 +5,7 @@ import {
   ArrowUpward,
   Computer,
   ContentCopy as ContentCopyIcon,
+  Folder as FolderIcon,
   Home,
   KeyboardArrowLeft,
   KeyboardArrowRight,
@@ -52,6 +53,7 @@ import {
   getCoreRowModel,
   getPaginationRowModel,
   getSortedRowModel,
+  OnChangeFn,
   SortingState,
   useReactTable,
 } from "@tanstack/react-table";
@@ -62,6 +64,7 @@ import {
   BroadcastResourceV2,
   BroadcastV2Config,
   ChannelType,
+  ContentFolderResourceTypeEnum,
   DuplicateResourceTypeEnum,
 } from "isomorphic-lib/src/types";
 import Link from "next/link";
@@ -71,7 +74,18 @@ import { useUniversalRouter } from "../../lib/authModeProvider";
 import { useArchiveBroadcastMutation } from "../../lib/useArchiveBroadcastMutation";
 import { useBroadcastsQuery } from "../../lib/useBroadcastsQuery";
 import { useCreateBroadcastMutation } from "../../lib/useCreateBroadcastMutation";
+import {
+  ALL_FOLDERS_FILTER,
+  ROOT_FOLDER_FILTER,
+  useContentFoldersQuery,
+  useMoveToFolderMutation,
+} from "../../lib/useContentFolders";
 import { useDuplicateResourceMutation } from "../../lib/useDuplicateResourceMutation";
+import {
+  FolderFilterSelect,
+  FolderGroupHeaderRow,
+  MoveToFolderDialog,
+} from "../folders/folderControls";
 import { GreyButton, greyButtonStyle } from "../greyButtonStyle";
 
 // Use the union type for the table row data
@@ -118,6 +132,7 @@ function ActionsCell({ row, table }: CellContext<Row, unknown>) {
 
   // Access functions from table meta
   const duplicateBroadcast = table.options.meta?.duplicateBroadcast;
+  const moveBroadcastToFolder = table.options.meta?.moveBroadcastToFolder;
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const open = Boolean(anchorEl);
@@ -191,6 +206,15 @@ function ActionsCell({ row, table }: CellContext<Row, unknown>) {
           },
         }}
       >
+        <MenuItem
+          onClick={() => {
+            moveBroadcastToFolder?.(row.original);
+            handleClose();
+          }}
+        >
+          <FolderIcon fontSize="small" sx={{ mr: 1 }} />
+          Move to folder
+        </MenuItem>
         <MenuItem onClick={handleDuplicate}>
           <ContentCopyIcon fontSize="small" sx={{ mr: 1 }} />
           Duplicate
@@ -359,10 +383,42 @@ export default function BroadcastsTable() {
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
   const [showArchived, setShowArchived] = useState(false);
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "folderId", desc: false },
+  ]);
+  const [folderFilter, setFolderFilter] = useState(ALL_FOLDERS_FILTER);
+  const [moveTarget, setMoveTarget] = useState<Row | null>(null);
 
   const query = useBroadcastsQuery();
   const createBroadcastMutation = useCreateBroadcastMutation();
+
+  // Fetch folders for filtering / grouping / moving
+  const foldersQuery = useContentFoldersQuery({
+    resourceType: ContentFolderResourceTypeEnum.Broadcast,
+  });
+  const folders = useMemo(() => foldersQuery.data ?? [], [foldersQuery.data]);
+  const folderNameById = useMemo(
+    () => new Map(folders.map((folder) => [folder.id, folder.name])),
+    [folders],
+  );
+  const folderRank = useMemo(
+    () => new Map(folders.map((folder, index) => [folder.id, index])),
+    [folders],
+  );
+
+  const moveToFolderMutation = useMoveToFolderMutation(
+    ContentFolderResourceTypeEnum.Broadcast,
+    {
+      onSuccess: () => {
+        setSnackbarMessage("Broadcast moved to folder.");
+        setSnackbarOpen(true);
+      },
+      onError: () => {
+        setSnackbarMessage("Failed to move broadcast to folder.");
+        setSnackbarOpen(true);
+      },
+    },
+  );
 
   const duplicateBroadcastMutation = useDuplicateResourceMutation({
     onSuccess: (data) => {
@@ -391,6 +447,17 @@ export default function BroadcastsTable() {
     return rawData.filter((b) => !b.archived);
   }, [rawData, showArchived]);
 
+  const visibleBroadcastsData = useMemo(() => {
+    if (folderFilter === ALL_FOLDERS_FILTER) {
+      return broadcastsData;
+    }
+    return broadcastsData.filter((broadcast) =>
+      folderFilter === ROOT_FOLDER_FILTER
+        ? !broadcast.folderId
+        : broadcast.folderId === folderFilter,
+    );
+  }, [broadcastsData, folderFilter]);
+
   const [pagination, setPagination] = useState({
     pageIndex: 0, // initial page index
     pageSize: 10, // default page size
@@ -406,6 +473,21 @@ export default function BroadcastsTable() {
 
   const columns = useMemo<ColumnDef<Row>[]>(() => {
     return [
+      {
+        id: "folderId",
+        accessorFn: (row) => row.folderId ?? null,
+        header: () => null,
+        enableHiding: true,
+        sortingFn: (a, b) => {
+          const rankA = a.original.folderId
+            ? (folderRank.get(a.original.folderId) ?? Number.MAX_SAFE_INTEGER)
+            : Number.MAX_SAFE_INTEGER;
+          const rankB = b.original.folderId
+            ? (folderRank.get(b.original.folderId) ?? Number.MAX_SAFE_INTEGER)
+            : Number.MAX_SAFE_INTEGER;
+          return rankA - rankB;
+        },
+      },
       {
         id: "name",
         header: "Name",
@@ -437,19 +519,30 @@ export default function BroadcastsTable() {
         cell: ActionsCell, // Use direct cell renderer
       },
     ];
-  }, []); // No dependency needed now
+  }, [folderRank]);
+
+  // Keep the hidden folderId column as the primary sort so that rows stay
+  // grouped under their folder headers.
+  const handleSortingChange: OnChangeFn<SortingState> = (updater) => {
+    setSorting((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      const userSorting = next.filter((s) => s.id !== "folderId");
+      return [{ id: "folderId", desc: false }, ...userSorting];
+    });
+  };
 
   const table = useReactTable({
     columns,
-    data: broadcastsData,
+    data: visibleBroadcastsData,
     getSortedRowModel: getSortedRowModel(),
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     onPaginationChange: setPagination,
-    onSortingChange: setSorting,
+    onSortingChange: handleSortingChange,
     state: {
       pagination,
       sorting,
+      columnVisibility: { folderId: false },
     },
     // Pass functions via meta
     meta: {
@@ -460,8 +553,48 @@ export default function BroadcastsTable() {
           resourceType: DuplicateResourceTypeEnum.Broadcast,
         });
       },
+      moveBroadcastToFolder: (row: Row) => {
+        setMoveTarget(row);
+      },
     },
   });
+
+  const tableRowsWithFolders: React.ReactNode[] = [];
+  let lastFolderKey: string | null | undefined;
+  for (const row of table.getRowModel().rows) {
+    const folderKey = row.original.folderId ?? null;
+    if (folderKey !== lastFolderKey) {
+      tableRowsWithFolders.push(
+        <FolderGroupHeaderRow
+          key={`folder-header-${folderKey ?? "root"}`}
+          label={
+            folderKey
+              ? (folderNameById.get(folderKey) ?? "Unknown folder")
+              : "Unfiled"
+          }
+          colSpan={table.getVisibleLeafColumns().length}
+        />,
+      );
+      lastFolderKey = folderKey;
+    }
+    tableRowsWithFolders.push(
+      <TableRow
+        key={row.id}
+        hover
+        sx={{
+          "&:hover": {
+            backgroundColor: "action.hover",
+          },
+        }}
+      >
+        {row.getVisibleCells().map((cell) => (
+          <TableCell key={cell.id}>
+            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+          </TableCell>
+        ))}
+      </TableRow>,
+    );
+  }
 
   const handleCreateBroadcast = () => {
     if (broadcastName.trim() && !createBroadcastMutation.isPending) {
@@ -540,6 +673,12 @@ export default function BroadcastsTable() {
         >
           <Typography variant="h4">Broadcasts</Typography>
           <Stack direction="row" spacing={1} alignItems="center">
+            <FolderFilterSelect
+              resourceType={ContentFolderResourceTypeEnum.Broadcast}
+              folders={folders}
+              value={folderFilter}
+              onChange={setFolderFilter}
+            />
             <FormControlLabel
               control={
                 <Switch
@@ -625,30 +764,11 @@ export default function BroadcastsTable() {
               ))}
             </TableHead>
             <TableBody>
-              {table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  hover
-                  sx={{
-                    "&:hover": {
-                      backgroundColor: "action.hover",
-                    },
-                  }}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
+              {tableRowsWithFolders}
               {/* Handle empty state only when not loading and data is truly empty */}
               {!query.isFetching &&
                 !query.isLoading &&
-                broadcastsData.length === 0 && (
+                visibleBroadcastsData.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={columns.length} align="center">
                       No broadcasts found.
@@ -802,6 +922,23 @@ export default function BroadcastsTable() {
         </DialogActions>
       </Dialog>
 
+      <MoveToFolderDialog
+        open={moveTarget !== null}
+        onClose={() => setMoveTarget(null)}
+        folders={folders}
+        currentFolderId={moveTarget?.folderId ?? null}
+        resourceName={moveTarget?.name}
+        onConfirm={(folderId) => {
+          if (moveTarget) {
+            moveToFolderMutation.mutate({
+              id: moveTarget.id,
+              folderId,
+            });
+          }
+          setMoveTarget(null);
+        }}
+      />
+
       {/* Snackbar for feedback (now includes load errors) */}
       <Snackbar
         open={snackbarOpen}
@@ -818,5 +955,6 @@ declare module "@tanstack/react-table" {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface TableMeta<TData = unknown> {
     duplicateBroadcast?: (broadcastName: string) => void;
+    moveBroadcastToFolder?: (row: Row) => void;
   }
 }

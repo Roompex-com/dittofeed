@@ -5,6 +5,7 @@ import {
   broadcast,
   componentConfiguration,
   computedPropertyPeriod,
+  contentFolder,
   defaultEmailProvider,
   defaultSmsProvider,
   emailProvider,
@@ -14,6 +15,7 @@ import {
   journey,
   messageTemplate,
   oauthToken,
+  quoMessageCorrelation,
   secret,
   segment,
   segmentAssignment,
@@ -41,6 +43,23 @@ export const segmentIoConfigurationRelations = relations(
   }),
 );
 
+export const contentFolderRelations = relations(contentFolder, ({ one }) => ({
+  workspace: one(workspace, {
+    fields: [contentFolder.workspaceId],
+    references: [workspace.id],
+  }),
+}));
+
+export const quoMessageCorrelationRelations = relations(
+  quoMessageCorrelation,
+  ({ one }) => ({
+    workspace: one(workspace, {
+      fields: [quoMessageCorrelation.workspaceId],
+      references: [workspace.id],
+    }),
+  }),
+);
+
 export const workspaceRelations = relations(workspace, ({ many }) => ({
   segmentIoConfigurations: many(segmentIoConfiguration),
   userProperties: many(userProperty),
@@ -62,6 +81,7 @@ export const workspaceRelations = relations(workspace, ({ many }) => ({
   defaultSmsProviders: many(defaultSmsProvider),
   smsProviders: many(smsProvider),
   journeys: many(journey),
+  contentFolders: many(contentFolder),
   computedPropertyPeriods: many(computedPropertyPeriod),
   adminApiKeys: many(adminApiKey),
   features: many(feature),
@@ -176,6 +196,10 @@ export const broadcastRelations = relations(broadcast, ({ one }) => ({
     fields: [broadcast.messageTemplateId],
     references: [messageTemplate.id],
   }),
+  folder: one(contentFolder, {
+    fields: [broadcast.folderId],
+    references: [contentFolder.id],
+  }),
 }));
 
 export const segmentRelations = relations(segment, ({ one, many }) => ({
@@ -189,6 +213,10 @@ export const segmentRelations = relations(segment, ({ one, many }) => ({
     fields: [segment.subscriptionGroupId],
     references: [subscriptionGroup.id],
   }),
+  folder: one(contentFolder, {
+    fields: [segment.folderId],
+    references: [contentFolder.id],
+  }),
 }));
 
 export const journeyRelations = relations(journey, ({ one, many }) => ({
@@ -196,6 +224,10 @@ export const journeyRelations = relations(journey, ({ one, many }) => ({
   workspace: one(workspace, {
     fields: [journey.workspaceId],
     references: [workspace.id],
+  }),
+  folder: one(contentFolder, {
+    fields: [journey.folderId],
+    references: [contentFolder.id],
   }),
 }));
 
@@ -206,6 +238,10 @@ export const messageTemplateRelations = relations(
     workspace: one(workspace, {
       fields: [messageTemplate.workspaceId],
       references: [workspace.id],
+    }),
+    folder: one(contentFolder, {
+      fields: [messageTemplate.folderId],
+      references: [contentFolder.id],
     }),
   }),
 );

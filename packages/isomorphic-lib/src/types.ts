@@ -180,6 +180,7 @@ export type ChannelType = (typeof ChannelType)[keyof typeof ChannelType];
 export enum SmsProviderType {
   Twilio = "Twilio",
   SignalWire = "SignalWire",
+  Quo = "Quo",
   Test = "Test",
 }
 
@@ -1109,6 +1110,13 @@ export const SignalWireOverride = Type.Object({
 
 export type SignalWireOverride = Static<typeof SignalWireOverride>;
 
+export const QuoOverride = Type.Object({
+  providerOverride: Type.Literal(SmsProviderType.Quo),
+  senderOverride: Type.Optional(Type.Null()),
+});
+
+export type QuoOverride = Static<typeof QuoOverride>;
+
 export const TestSmsOverride = Type.Object({
   providerOverride: Type.Literal(SmsProviderType.Test),
   senderOverride: Type.Optional(Type.Null()),
@@ -1120,6 +1128,7 @@ export const SmsProviderOverride = Type.Union([
   NoSmsProviderOverride,
   TwilioOverride,
   SignalWireOverride,
+  QuoOverride,
   TestSmsOverride,
 ]);
 
@@ -1129,6 +1138,7 @@ export const SmsMessageVariant = Type.Union([
   Type.Composite([BaseSmsMessageVariant, NoSmsProviderOverride]),
   Type.Composite([BaseSmsMessageVariant, TwilioOverride]),
   Type.Composite([BaseSmsMessageVariant, SignalWireOverride]),
+  Type.Composite([BaseSmsMessageVariant, QuoOverride]),
   Type.Composite([BaseSmsMessageVariant, TestSmsOverride]),
 ]);
 
@@ -1281,6 +1291,7 @@ export const SegmentResource = Type.Object({
   name: Type.String(),
   definition: SegmentDefinition,
   subscriptionGroupId: Type.Optional(Type.String()),
+  folderId: Type.Optional(Nullable(Type.String())),
   updatedAt: Type.Number(),
   lastRecomputed: Type.Optional(Type.Number()),
   resourceType: Type.Optional(ResourceType),
@@ -1396,6 +1407,7 @@ export const BroadcastResource = Type.Object({
   segmentId: Type.Optional(Type.String()),
   journeyId: Type.Optional(Type.String()),
   messageTemplateId: Type.Optional(Type.String()),
+  folderId: Type.Optional(Nullable(Type.String())),
   status: Type.Union([
     Type.Literal("NotStarted"),
     Type.Literal("InProgress"),
@@ -1834,6 +1846,7 @@ const MessageTemplateResourceProperties = {
   type: Type.Enum(ChannelType),
   definition: Type.Optional(MessageTemplateResourceDefinition),
   draft: Type.Optional(MessageTemplateResourceDraft),
+  folderId: Type.Optional(Nullable(Type.String())),
   updatedAt: Type.Number(),
 } as const;
 
@@ -1858,6 +1871,7 @@ export const UpsertMessageTemplateResource = Type.Object({
   name: Type.String(),
   definition: Type.Optional(MessageTemplateResourceDefinition),
   draft: Type.Optional(Nullable(MessageTemplateResourceDraft)),
+  folderId: Type.Optional(Nullable(Type.String())),
   resourceType: Type.Optional(ResourceType),
 });
 
@@ -1916,6 +1930,79 @@ export const GetMessageTemplatesResponse = Type.Object({
 
 export type GetMessageTemplatesResponse = Static<
   typeof GetMessageTemplatesResponse
+>;
+
+export const ContentFolderResourceTypeEnum = {
+  Template: "Template",
+  Journey: "Journey",
+  Segment: "Segment",
+  Broadcast: "Broadcast",
+} as const;
+
+export const ContentFolderResourceType = Type.KeyOf(
+  Type.Const(ContentFolderResourceTypeEnum),
+);
+
+export type ContentFolderResourceType = Static<
+  typeof ContentFolderResourceType
+>;
+
+export const ContentFolder = Type.Object({
+  id: Type.String(),
+  workspaceId: Type.String(),
+  name: Type.String(),
+  resourceType: ContentFolderResourceType,
+  createdAt: Type.Number(),
+  updatedAt: Type.Number(),
+});
+
+export type ContentFolder = Static<typeof ContentFolder>;
+
+export const GetContentFoldersRequest = Type.Object({
+  workspaceId: Type.String(),
+  resourceType: Type.Optional(ContentFolderResourceType),
+});
+
+export type GetContentFoldersRequest = Static<typeof GetContentFoldersRequest>;
+
+export const GetContentFoldersResponse = Type.Object({
+  folders: Type.Array(ContentFolder),
+});
+
+export type GetContentFoldersResponse = Static<
+  typeof GetContentFoldersResponse
+>;
+
+export const UpsertContentFolderRequest = Type.Object({
+  workspaceId: Type.String(),
+  id: Type.Optional(Type.String()),
+  name: Type.String(),
+  resourceType: ContentFolderResourceType,
+});
+
+export type UpsertContentFolderRequest = Static<
+  typeof UpsertContentFolderRequest
+>;
+
+export const UpsertContentFolderErrorTypeEnum = {
+  IdError: "IdError",
+  UniqueConstraintViolation: "UniqueConstraintViolation",
+} as const;
+
+export const UpsertContentFolderError = Type.Object({
+  type: Type.KeyOf(Type.Const(UpsertContentFolderErrorTypeEnum)),
+  message: Type.String(),
+});
+
+export type UpsertContentFolderError = Static<typeof UpsertContentFolderError>;
+
+export const DeleteContentFolderRequest = Type.Object({
+  workspaceId: Type.String(),
+  id: Type.String(),
+});
+
+export type DeleteContentFolderRequest = Static<
+  typeof DeleteContentFolderRequest
 >;
 
 export const GetSegmentsRequest = Type.Object({
@@ -2399,6 +2486,7 @@ const baseJourneyResource = {
   workspaceId: Type.String(),
   name: Type.String(),
   canRunMultiple: Type.Optional(Type.Boolean()),
+  folderId: Type.Optional(Nullable(Type.String())),
   updatedAt: Type.Number(),
   draft: Type.Optional(JourneyDraft),
 } as const;
@@ -3760,6 +3848,15 @@ export const SignalWireSecret = Type.Object({
 
 export type SignalWireSecret = Static<typeof SignalWireSecret>;
 
+export const QuoSecret = Type.Object({
+  type: Type.Literal(SmsProviderType.Quo),
+  apiKey: Type.Optional(Type.String()),
+  from: Type.Optional(Type.String()),
+  webhookSecret: Type.Optional(Type.String()),
+});
+
+export type QuoSecret = Static<typeof QuoSecret>;
+
 export const TestSmsSecret = Type.Object({
   type: Type.Literal(SmsProviderType.Test),
 });
@@ -3778,6 +3875,7 @@ export const SmsProviderSecret = Type.Union([
   TwilioSecret,
   TestSmsSecret,
   SignalWireSecret,
+  QuoSecret,
 ]);
 
 export type SmsProviderSecret = Static<typeof SmsProviderSecret>;
@@ -3798,9 +3896,18 @@ export const SignalWireSmsProvider = Type.Object({
 
 export type SignalWireSmsProvider = Static<typeof SignalWireSmsProvider>;
 
+export const QuoSmsProvider = Type.Object({
+  id: Type.String(),
+  workspaceId: Type.String(),
+  type: Type.Optional(Type.Literal(SmsProviderType.Quo)),
+});
+
+export type QuoSmsProvider = Static<typeof QuoSmsProvider>;
+
 export const PersistedSmsProvider = Type.Union([
   TwilioSmsProvider,
   SignalWireSmsProvider,
+  QuoSmsProvider,
   TestSmsProvider,
 ]);
 
@@ -3832,6 +3939,13 @@ export const SmsSignalWireSuccess = Type.Object({
 
 export type SmsSignalWireSuccess = Static<typeof SmsSignalWireSuccess>;
 
+export const SmsQuoSuccess = Type.Object({
+  type: Type.Literal(SmsProviderType.Quo),
+  messageId: Type.String(),
+});
+
+export type SmsQuoSuccess = Static<typeof SmsQuoSuccess>;
+
 export const SmsTestSuccess = Type.Object({
   type: Type.Literal(SmsProviderType.Test),
 });
@@ -3841,6 +3955,7 @@ export type SmsTestSuccess = Static<typeof SmsTestSuccess>;
 export const SmsServiceProviderSuccess = Type.Union([
   SmsTwilioSuccess,
   SmsSignalWireSuccess,
+  SmsQuoSuccess,
   SmsTestSuccess,
 ]);
 
@@ -4266,9 +4381,17 @@ export type MessageSignalWireServiceFailure = Static<
   typeof MessageSignalWireServiceFailure
 >;
 
+export const MessageQuoServiceFailure = Type.Object({
+  type: Type.Literal(SmsProviderType.Quo),
+  message: Type.Optional(Type.String()),
+});
+
+export type MessageQuoServiceFailure = Static<typeof MessageQuoServiceFailure>;
+
 export const SmsServiceProviderFailure = Type.Union([
   MessageTwilioServiceFailure,
   MessageSignalWireServiceFailure,
+  MessageQuoServiceFailure,
 ]);
 
 export type SmsServiceProviderFailure = Static<
@@ -5729,6 +5852,7 @@ export const BroadcastSmsMessageVariant = Type.Union([
   Type.Composite([BaseBroadcastSmsMessageVariant, NoSmsProviderOverride]),
   Type.Composite([BaseBroadcastSmsMessageVariant, TwilioOverride]),
   Type.Composite([BaseBroadcastSmsMessageVariant, SignalWireOverride]),
+  Type.Composite([BaseBroadcastSmsMessageVariant, QuoOverride]),
   Type.Composite([BaseBroadcastSmsMessageVariant, TestSmsOverride]),
 ]);
 
@@ -5774,6 +5898,7 @@ export const BroadcastResourceV2 = Type.Object({
   segmentId: Type.Optional(Type.String()),
   messageTemplateId: Type.Optional(Type.String()),
   subscriptionGroupId: Type.Optional(Type.String()),
+  folderId: Type.Optional(Nullable(Type.String())),
   config: BroadcastV2Config,
   status: BroadcastV2Status,
   scheduledAt: Type.Optional(Type.String()),
@@ -5867,6 +5992,7 @@ export const BaseUpsertBroadcastV2Request = Type.Object({
   segmentId: NullableAndOptional(Type.String()),
   messageTemplateId: NullableAndOptional(Type.String()),
   subscriptionGroupId: NullableAndOptional(Type.String()),
+  folderId: NullableAndOptional(Type.String()),
   config: Type.Optional(BroadcastV2Config),
   scheduledAt: NullableAndOptional(Type.String()),
 });

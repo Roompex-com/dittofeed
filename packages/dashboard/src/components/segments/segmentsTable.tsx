@@ -6,6 +6,7 @@ import {
   ContentCopy as ContentCopyIcon,
   Delete as DeleteIcon,
   DownloadForOffline,
+  Folder as FolderIcon,
   Home,
   KeyboardArrowLeft,
   KeyboardArrowRight,
@@ -54,6 +55,7 @@ import {
   getCoreRowModel,
   getPaginationRowModel,
   getSortedRowModel,
+  OnChangeFn,
   SortingState,
   useReactTable,
 } from "@tanstack/react-table";
@@ -63,6 +65,7 @@ import { DEFAULT_SEGMENT_DEFINITION } from "isomorphic-lib/src/constants";
 import {
   CompletionStatus,
   ComputedPropertyPeriod,
+  ContentFolderResourceTypeEnum,
   DuplicateResourceTypeEnum,
   MinimalJourneysResource,
   SegmentDefinition,
@@ -76,6 +79,12 @@ import { v4 as uuid } from "uuid";
 import { useAppStorePick } from "../../lib/appStore";
 import { useUniversalRouter } from "../../lib/authModeProvider";
 import { useComputedPropertyPeriodsQuery } from "../../lib/useComputedPropertyPeriodsQuery";
+import {
+  ALL_FOLDERS_FILTER,
+  ROOT_FOLDER_FILTER,
+  useContentFoldersQuery,
+  useMoveToFolderMutation,
+} from "../../lib/useContentFolders";
 import { useDeleteSegmentMutation } from "../../lib/useDeleteSegmentMutation";
 import { useDownloadSegmentsMutation } from "../../lib/useDownloadSegmentsMutation";
 import { useDuplicateResourceMutation } from "../../lib/useDuplicateResourceMutation";
@@ -86,6 +95,11 @@ import {
 } from "../../lib/useSegmentsQuery";
 import { useSegmentStatusMutation } from "../../lib/useSegmentStatusMutation";
 import { useUpdateSegmentsMutation } from "../../lib/useUpdateSegmentsMutation";
+import {
+  FolderFilterSelect,
+  FolderGroupHeaderRow,
+  MoveToFolderDialog,
+} from "../folders/folderControls";
 import { GreyButton, greyButtonStyle } from "../greyButtonStyle";
 import { RelatedResourceSelect } from "../resourceTable";
 
@@ -194,6 +208,7 @@ function ActionsCell({ row, table }: CellContext<Row, unknown>) {
   const deleteSegment = table.options.meta?.deleteSegment;
   const duplicateSegment = table.options.meta?.duplicateSegment;
   const toggleSegmentStatus = table.options.meta?.toggleSegmentStatus;
+  const moveSegmentToFolder = table.options.meta?.moveSegmentToFolder;
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const open = Boolean(anchorEl);
@@ -276,6 +291,15 @@ function ActionsCell({ row, table }: CellContext<Row, unknown>) {
               Resume
             </>
           )}
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            moveSegmentToFolder?.(row.original);
+            handleClose();
+          }}
+        >
+          <FolderIcon fontSize="small" sx={{ mr: 1 }} />
+          Move to folder
         </MenuItem>
         <MenuItem onClick={handleDuplicate}>
           <ContentCopyIcon fontSize="small" sx={{ mr: 1 }} />
@@ -367,7 +391,11 @@ export function SegmentsTable({
   const [segmentName, setSegmentName] = useState("");
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "folderId", desc: false },
+  ]);
+  const [folderFilter, setFolderFilter] = useState(ALL_FOLDERS_FILTER);
+  const [moveTarget, setMoveTarget] = useState<Row | null>(null);
   const { data: computedPropertyPeriods } = useComputedPropertyPeriodsQuery({
     step: "ComputeAssignments",
   });
@@ -380,6 +408,34 @@ export function SegmentsTable({
   const segmentsQuery = useSegmentsQuery({
     resourceType: "Declarative",
   });
+
+  // Fetch folders for filtering / grouping / moving
+  const foldersQuery = useContentFoldersQuery({
+    resourceType: ContentFolderResourceTypeEnum.Segment,
+  });
+  const folders = useMemo(() => foldersQuery.data ?? [], [foldersQuery.data]);
+  const folderNameById = useMemo(
+    () => new Map(folders.map((folder) => [folder.id, folder.name])),
+    [folders],
+  );
+  const folderRank = useMemo(
+    () => new Map(folders.map((folder, index) => [folder.id, index])),
+    [folders],
+  );
+
+  const moveToFolderMutation = useMoveToFolderMutation(
+    ContentFolderResourceTypeEnum.Segment,
+    {
+      onSuccess: () => {
+        setSnackbarMessage("Segment moved to folder.");
+        setSnackbarOpen(true);
+      },
+      onError: () => {
+        setSnackbarMessage("Failed to move segment to folder.");
+        setSnackbarOpen(true);
+      },
+    },
+  );
 
   const segmentsData: Row[] = useMemo(() => {
     if (!segmentsQuery.data?.segments) {
@@ -409,6 +465,17 @@ export function SegmentsTable({
     computedPropertyPeriods?.periods,
     resources?.journeys,
   ]);
+
+  const visibleSegmentsData = useMemo(() => {
+    if (folderFilter === ALL_FOLDERS_FILTER) {
+      return segmentsData;
+    }
+    return segmentsData.filter((segment) =>
+      folderFilter === ROOT_FOLDER_FILTER
+        ? !segment.folderId
+        : segment.folderId === folderFilter,
+    );
+  }, [segmentsData, folderFilter]);
 
   const [pagination, setPagination] = useState({
     pageIndex: 0, // initial page index
@@ -524,6 +591,21 @@ export function SegmentsTable({
   };
 
   const columns = useMemo<ColumnDef<Row>[]>(() => {
+    const folderIdColumn: ColumnDef<Row> = {
+      id: "folderId",
+      accessorFn: (row) => row.folderId ?? null,
+      header: () => null,
+      enableHiding: true,
+      sortingFn: (a, b) => {
+        const rankA = a.original.folderId
+          ? (folderRank.get(a.original.folderId) ?? Number.MAX_SAFE_INTEGER)
+          : Number.MAX_SAFE_INTEGER;
+        const rankB = b.original.folderId
+          ? (folderRank.get(b.original.folderId) ?? Number.MAX_SAFE_INTEGER)
+          : Number.MAX_SAFE_INTEGER;
+        return rankA - rankB;
+      },
+    };
     const columnDefinitions: Record<SegmentsAllowedColumn, ColumnDef<Row>> = {
       name: {
         id: "name",
@@ -565,20 +647,34 @@ export function SegmentsTable({
       },
     };
 
-    return columnAllowList.map((columnId) => columnDefinitions[columnId]);
-  }, [columnAllowList]);
+    return [
+      folderIdColumn,
+      ...columnAllowList.map((columnId) => columnDefinitions[columnId]),
+    ];
+  }, [columnAllowList, folderRank]);
+
+  // Keep the hidden folderId column as the primary sort so that rows stay
+  // grouped under their folder headers.
+  const handleSortingChange: OnChangeFn<SortingState> = (updater) => {
+    setSorting((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      const userSorting = next.filter((s) => s.id !== "folderId");
+      return [{ id: "folderId", desc: false }, ...userSorting];
+    });
+  };
 
   const table = useReactTable({
     columns,
-    data: segmentsData,
+    data: visibleSegmentsData,
     getSortedRowModel: getSortedRowModel(),
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     onPaginationChange: setPagination,
-    onSortingChange: setSorting,
+    onSortingChange: handleSortingChange,
     state: {
       pagination,
       sorting,
+      columnVisibility: { folderId: false },
     },
     // Pass functions via meta
     meta: {
@@ -600,8 +696,48 @@ export function SegmentsTable({
       ) => {
         handleToggleSegmentStatus(segmentId, newStatus);
       },
+      moveSegmentToFolder: (row: Row) => {
+        setMoveTarget(row);
+      },
     },
   });
+
+  const tableRowsWithFolders: React.ReactNode[] = [];
+  let lastFolderKey: string | null | undefined;
+  for (const row of table.getRowModel().rows) {
+    const folderKey = row.original.folderId ?? null;
+    if (folderKey !== lastFolderKey) {
+      tableRowsWithFolders.push(
+        <FolderGroupHeaderRow
+          key={`folder-header-${folderKey ?? "root"}`}
+          label={
+            folderKey
+              ? (folderNameById.get(folderKey) ?? "Unknown folder")
+              : "Unfiled"
+          }
+          colSpan={table.getVisibleLeafColumns().length}
+        />,
+      );
+      lastFolderKey = folderKey;
+    }
+    tableRowsWithFolders.push(
+      <TableRow
+        key={row.id}
+        hover
+        sx={{
+          "&:hover": {
+            backgroundColor: "action.hover",
+          },
+        }}
+      >
+        {row.getVisibleCells().map((cell) => (
+          <TableCell key={cell.id}>
+            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+          </TableCell>
+        ))}
+      </TableRow>,
+    );
+  }
 
   const isFetching = segmentsQuery.isFetching || segmentsQuery.isLoading;
 
@@ -615,6 +751,12 @@ export function SegmentsTable({
         >
           <Typography variant="h4">Segments</Typography>
           <Stack direction="row" spacing={1} alignItems="center">
+            <FolderFilterSelect
+              resourceType={ContentFolderResourceTypeEnum.Segment}
+              folders={folders}
+              value={folderFilter}
+              onChange={setFolderFilter}
+            />
             <Tooltip title="download user segments" placement="right" arrow>
               <LoadingButton
                 loading={downloadMutation.isPending}
@@ -695,28 +837,9 @@ export function SegmentsTable({
               ))}
             </TableHead>
             <TableBody>
-              {table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  hover
-                  sx={{
-                    "&:hover": {
-                      backgroundColor: "action.hover",
-                    },
-                  }}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
+              {tableRowsWithFolders}
               {/* Handle empty state only when not loading and data is truly empty */}
-              {!isFetching && segmentsData.length === 0 && (
+              {!isFetching && visibleSegmentsData.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={columns.length} align="center">
                     No segments found.{" "}
@@ -853,6 +976,23 @@ export function SegmentsTable({
         </DialogActions>
       </Dialog>
 
+      <MoveToFolderDialog
+        open={moveTarget !== null}
+        onClose={() => setMoveTarget(null)}
+        folders={folders}
+        currentFolderId={moveTarget?.folderId ?? null}
+        resourceName={moveTarget?.name}
+        onConfirm={(folderId) => {
+          if (moveTarget) {
+            moveToFolderMutation.mutate({
+              id: moveTarget.id,
+              folderId,
+            });
+          }
+          setMoveTarget(null);
+        }}
+      />
+
       {/* Snackbar for feedback */}
       <Snackbar
         open={snackbarOpen}
@@ -875,5 +1015,6 @@ declare module "@tanstack/react-table" {
       segmentId: string,
       newStatus: "NotStarted" | "Running" | "Paused",
     ) => void;
+    moveSegmentToFolder?: (row: Row) => void;
   }
 }

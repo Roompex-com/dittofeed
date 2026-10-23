@@ -946,8 +946,16 @@ function mapUpsertValidationError(
 export async function upsertJourney(
   params: UpsertJourneyResource,
 ): Promise<Result<SavedJourneyResource, JourneyUpsertValidationError>> {
-  const { id, name, definition, workspaceId, status, canRunMultiple, draft } =
-    params;
+  const {
+    id,
+    name,
+    definition,
+    workspaceId,
+    status,
+    canRunMultiple,
+    folderId,
+    draft,
+  } = params;
 
   if (id && !validateUuid(id)) {
     return err({
@@ -1016,6 +1024,7 @@ export async function upsertJourney(
             draft: nullableDraft,
             status,
             canRunMultiple,
+            folderId: folderId ?? null,
           },
         })
       ).mapErr(mapUpsertValidationError);
@@ -1090,6 +1099,7 @@ export async function upsertJourney(
           status,
           statusUpdatedAt,
           canRunMultiple,
+          ...(folderId !== undefined ? { folderId } : {}),
         })
         .where(and(...conditions))
         .returning(),

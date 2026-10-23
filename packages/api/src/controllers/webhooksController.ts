@@ -14,6 +14,10 @@ import {
 } from "backend-lib/src/destinations/amazonses";
 import { submitMailChimpEvents } from "backend-lib/src/destinations/mailchimp";
 import { submitPostmarkEvents } from "backend-lib/src/destinations/postmark";
+import {
+  getQuoMessageCorrelation,
+  submitQuoEvents,
+} from "backend-lib/src/destinations/quo";
 import { submitResendEvents } from "backend-lib/src/destinations/resend";
 import { handleSendgridEvents } from "backend-lib/src/destinations/sendgrid";
 import { submitTwilioEvents } from "backend-lib/src/destinations/twilio";
@@ -24,6 +28,7 @@ import {
   AmazonSNSEventTypes,
   MailChimpEvent,
   PostMarkEvent,
+  QuoWebhookEvent,
   ResendEvent,
   SendgridEvent,
   TwilioEventSms,
@@ -41,6 +46,7 @@ import {
 import {
   MailChimpSecret,
   PostMarkSecret,
+  QuoSecret,
   ResendSecret,
   TwilioSecret,
   TwilioWebhookRequest,
@@ -51,6 +57,7 @@ import { Webhook } from "svix";
 import { validateRequest } from "twilio";
 
 import { getWorkspaceId } from "../workspace";
+import { verifyQuoWebhookSignature } from "./quoWebhook";
 
 const TWILIO_CONFIG_ERR_MSG = "Twilio configuration not found";
 
@@ -610,6 +617,115 @@ export default async function webhookController(fastify: FastifyInstance) {
         TwilioEvent: request.body,
         subscriptionGroupId,
       });
+      return reply.status(200).send();
+    },
+  );
+
+  fastify.withTypeProvider<TypeBoxTypeProvider>().post(
+    "/quo",
+    {
+      schema: {
+        description: "Used to consume Quo (formerly OpenPhone) webhooks.",
+        tags: ["Webhooks"],
+        headers: Type.Object({
+          "webhook-id": Type.String(),
+          "webhook-timestamp": Type.String(),
+          "webhook-signature": Type.String(),
+        }),
+        body: QuoWebhookEvent,
+      },
+    },
+    async (request, reply) => {
+      logger().debug({ body: request.body }, "Received quo event.");
+
+      // Quo webhooks are workspace-scoped subscriptions with no per-message
+      // status callback, so the DittoFeed workspace / user are resolved from
+      // the correlation row persisted at send time.
+      const messageId = request.body.data.resource.id;
+      const correlation = await getQuoMessageCorrelation({ messageId });
+      if (!correlation) {
+        logger().info(
+          {
+            messageId,
+          },
+          "No Quo message correlation found for webhook event.",
+        );
+        return reply.status(200).send();
+      }
+      const { workspaceId, userId, templateId } = correlation;
+
+      const secret = await db().query.secret.findFirst({
+        where: and(
+          eq(schema.secret.workspaceId, workspaceId),
+          eq(schema.secret.name, SecretNames.Quo),
+        ),
+        with: {
+          workspace: true,
+        },
+      });
+
+      const webhookSecret = schemaValidateWithErr(
+        secret?.configValue,
+        QuoSecret,
+      )
+        .map((val) => val.webhookSecret)
+        .unwrapOr(null);
+
+      if (!webhookSecret) {
+        logger().error(
+          {
+            workspaceId,
+          },
+          "Missing Quo webhook secret.",
+        );
+        return reply.status(400).send({
+          error: "Missing secret.",
+        });
+      }
+
+      if (!request.rawBody || typeof request.rawBody !== "string") {
+        logger().error({ workspaceId }, "Missing rawBody on quo webhook.");
+        return reply.status(500).send();
+      }
+
+      const verified = verifyQuoWebhookSignature({
+        rawBody: request.rawBody,
+        headers: request.headers as Record<string, string>,
+        webhookSecret,
+      });
+
+      if (!verified) {
+        logger().error(
+          {
+            workspaceId,
+          },
+          "Invalid signature for quo webhook.",
+        );
+        return reply.status(401).send({
+          message: "Invalid signature.",
+        });
+      }
+
+      if (
+        !secret?.workspace ||
+        !canWorkspaceReceiveEvents({ workspace: secret.workspace })
+      ) {
+        return reply.status(401).send({
+          message: "Workspace not eligible.",
+        });
+      }
+
+      const result = await submitQuoEvents({
+        workspaceId,
+        userId,
+        templateId,
+        event: request.body,
+      });
+      if (result.isErr()) {
+        return reply.status(400).send({
+          message: result.error.message,
+        });
+      }
       return reply.status(200).send();
     },
   );

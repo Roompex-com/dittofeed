@@ -71,6 +71,7 @@ export function toBroadcastResource(broadcast: Broadcast): BroadcastResource {
     segmentId: broadcast.segmentId ?? undefined,
     journeyId: broadcast.journeyId ?? undefined,
     messageTemplateId: broadcast.messageTemplateId ?? undefined,
+    ...(broadcast.folderId ? { folderId: broadcast.folderId } : {}),
     archived: broadcast.archived,
     triggeredAt: broadcast.triggeredAt
       ? broadcast.triggeredAt.getTime()
@@ -434,6 +435,7 @@ export function broadcastV2ToResource(
     segmentId: broadcast.segmentId ?? undefined,
     subscriptionGroupId: broadcast.subscriptionGroupId ?? undefined,
     messageTemplateId: broadcast.messageTemplateId ?? undefined,
+    ...(broadcast.folderId ? { folderId: broadcast.folderId } : {}),
     archived: broadcast.archived,
   };
 }
@@ -445,6 +447,7 @@ export async function upsertBroadcastV2({
   segmentId,
   messageTemplateId,
   subscriptionGroupId,
+  folderId,
   config,
   scheduledAt,
 }: UpsertBroadcastV2Request): Promise<
@@ -534,6 +537,7 @@ export async function upsertBroadcastV2({
               segmentId,
               messageTemplateId,
               subscriptionGroupId,
+              ...(folderId !== undefined ? { folderId } : {}),
               config,
               scheduledAt,
             })
@@ -648,6 +652,7 @@ export async function upsertBroadcastV2({
               segmentId,
               messageTemplateId,
               subscriptionGroupId: subscriptionGroupIdWithDefault,
+              folderId: folderId ?? null,
               version: "V2",
               config: insertedConfig,
               scheduledAt,

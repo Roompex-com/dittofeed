@@ -5,6 +5,7 @@ import {
   Computer,
   ContentCopy as ContentCopyIcon,
   Delete as DeleteIcon,
+  Folder as FolderIcon,
   Home,
   KeyboardArrowLeft,
   KeyboardArrowRight,
@@ -49,12 +50,14 @@ import {
   getCoreRowModel,
   getPaginationRowModel,
   getSortedRowModel,
+  OnChangeFn,
   SortingState,
   useReactTable,
 } from "@tanstack/react-table";
 import { AxiosError } from "axios";
 import formatDistanceToNow from "date-fns/formatDistanceToNow";
 import {
+  ContentFolderResourceTypeEnum,
   DuplicateResourceTypeEnum,
   GetJourneysResponseItem,
   JourneyResourceStatus,
@@ -64,10 +67,21 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { useUniversalRouter } from "../../../lib/authModeProvider";
 import { useCreateJourneyMutation } from "../../../lib/useCreateJourneyMutation";
+import {
+  ALL_FOLDERS_FILTER,
+  ROOT_FOLDER_FILTER,
+  useContentFoldersQuery,
+  useMoveToFolderMutation,
+} from "../../../lib/useContentFolders";
 import { useDeleteJourneyMutation } from "../../../lib/useDeleteJourneyMutation";
 import { useDuplicateResourceMutation } from "../../../lib/useDuplicateResourceMutation";
 import { useJourneyMutation } from "../../../lib/useJourneyMutation";
 import { useJourneysQuery } from "../../../lib/useJourneysQuery";
+import {
+  FolderFilterSelect,
+  FolderGroupHeaderRow,
+  MoveToFolderDialog,
+} from "../../folders/folderControls";
 import { GreyButton, greyButtonStyle } from "../../greyButtonStyle";
 import { DEFAULT_EDGES, DEFAULT_JOURNEY_NODES } from "../defaults";
 import { JourneyStateForDraft, journeyStateToDraft } from "../store";
@@ -99,6 +113,7 @@ function ActionsCell({ row, table }: CellContext<Row, unknown>) {
 
   // Access functions from table meta
   const duplicateJourney = table.options.meta?.duplicateJourney;
+  const moveJourneyToFolder = table.options.meta?.moveJourneyToFolder;
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const open = Boolean(anchorEl);
@@ -183,6 +198,15 @@ function ActionsCell({ row, table }: CellContext<Row, unknown>) {
         <MenuItem onClick={handleEdit}>
           <OpenInNewIcon fontSize="small" sx={{ mr: 1 }} />
           Edit
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            moveJourneyToFolder?.(row.original);
+            handleClose();
+          }}
+        >
+          <FolderIcon fontSize="small" sx={{ mr: 1 }} />
+          Move to folder
         </MenuItem>
         {(status === "Running" || status === "Paused") && (
           <MenuItem onClick={handleToggleStatus} disabled={isToggleInProgress}>
@@ -318,7 +342,11 @@ export default function JourneysTable() {
   const [journeyName, setJourneyName] = useState("");
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "folderId", desc: false },
+  ]);
+  const [folderFilter, setFolderFilter] = useState(ALL_FOLDERS_FILTER);
+  const [moveTarget, setMoveTarget] = useState<Row | null>(null);
   const [pagination, setPagination] = useState({
     pageIndex: 0,
     pageSize: 10,
@@ -332,6 +360,45 @@ export default function JourneysTable() {
     () => query.data?.journeys ?? [],
     [query.data],
   );
+
+  // Fetch folders for filtering / grouping / moving
+  const foldersQuery = useContentFoldersQuery({
+    resourceType: ContentFolderResourceTypeEnum.Journey,
+  });
+  const folders = useMemo(() => foldersQuery.data ?? [], [foldersQuery.data]);
+  const folderNameById = useMemo(
+    () => new Map(folders.map((folder) => [folder.id, folder.name])),
+    [folders],
+  );
+  const folderRank = useMemo(
+    () => new Map(folders.map((folder, index) => [folder.id, index])),
+    [folders],
+  );
+
+  const moveToFolderMutation = useMoveToFolderMutation(
+    ContentFolderResourceTypeEnum.Journey,
+    {
+      onSuccess: () => {
+        setSnackbarMessage("Journey moved to folder.");
+        setSnackbarOpen(true);
+      },
+      onError: () => {
+        setSnackbarMessage("Failed to move journey to folder.");
+        setSnackbarOpen(true);
+      },
+    },
+  );
+
+  const visibleJourneysData = useMemo(() => {
+    if (folderFilter === ALL_FOLDERS_FILTER) {
+      return journeysData;
+    }
+    return journeysData.filter((journey) =>
+      folderFilter === ROOT_FOLDER_FILTER
+        ? !journey.folderId
+        : journey.folderId === folderFilter,
+    );
+  }, [journeysData, folderFilter]);
 
   useEffect(() => {
     if (query.isError) {
@@ -358,6 +425,21 @@ export default function JourneysTable() {
   const columns = useMemo<ColumnDef<Row>[]>(
     () => [
       {
+        id: "folderId",
+        accessorFn: (row) => row.folderId ?? null,
+        header: () => null,
+        enableHiding: true,
+        sortingFn: (a, b) => {
+          const rankA = a.original.folderId
+            ? (folderRank.get(a.original.folderId) ?? Number.MAX_SAFE_INTEGER)
+            : Number.MAX_SAFE_INTEGER;
+          const rankB = b.original.folderId
+            ? (folderRank.get(b.original.folderId) ?? Number.MAX_SAFE_INTEGER)
+            : Number.MAX_SAFE_INTEGER;
+          return rankA - rankB;
+        },
+      },
+      {
         id: "name",
         header: "Name",
         accessorKey: "name",
@@ -382,20 +464,31 @@ export default function JourneysTable() {
         cell: ActionsCell,
       },
     ],
-    [],
+    [folderRank],
   );
+
+  // Keep the hidden folderId column as the primary sort so that rows stay
+  // grouped under their folder headers.
+  const handleSortingChange: OnChangeFn<SortingState> = (updater) => {
+    setSorting((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      const userSorting = next.filter((s) => s.id !== "folderId");
+      return [{ id: "folderId", desc: false }, ...userSorting];
+    });
+  };
 
   const table = useReactTable({
     columns,
-    data: journeysData,
+    data: visibleJourneysData,
     getSortedRowModel: getSortedRowModel(),
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     onPaginationChange: setPagination,
-    onSortingChange: setSorting,
+    onSortingChange: handleSortingChange,
     state: {
       pagination,
       sorting,
+      columnVisibility: { folderId: false },
     },
     // Pass functions via meta
     meta: {
@@ -406,8 +499,40 @@ export default function JourneysTable() {
           resourceType: DuplicateResourceTypeEnum.Journey,
         });
       },
+      moveJourneyToFolder: (row: Row) => {
+        setMoveTarget(row);
+      },
     },
   });
+
+  const tableRowsWithFolders: React.ReactNode[] = [];
+  let lastFolderKey: string | null | undefined;
+  for (const row of table.getRowModel().rows) {
+    const folderKey = row.original.folderId ?? null;
+    if (folderKey !== lastFolderKey) {
+      tableRowsWithFolders.push(
+        <FolderGroupHeaderRow
+          key={`folder-header-${folderKey ?? "root"}`}
+          label={
+            folderKey
+              ? (folderNameById.get(folderKey) ?? "Unknown folder")
+              : "Unfiled"
+          }
+          colSpan={table.getVisibleLeafColumns().length}
+        />,
+      );
+      lastFolderKey = folderKey;
+    }
+    tableRowsWithFolders.push(
+      <TableRow key={row.id} hover>
+        {row.getVisibleCells().map((cell) => (
+          <TableCell key={cell.id}>
+            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+          </TableCell>
+        ))}
+      </TableRow>,
+    );
+  }
 
   const handleCreateJourney = () => {
     if (journeyName.trim() && !createJourneyMutation.isPending) {
@@ -450,14 +575,22 @@ export default function JourneysTable() {
           alignItems="center"
         >
           <Typography variant="h4">Journeys</Typography>
-          <Button
-            variant="contained"
-            sx={greyButtonStyle}
-            onClick={() => setDialogOpen(true)}
-            startIcon={<AddIcon />}
-          >
-            New Journey
-          </Button>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <FolderFilterSelect
+              resourceType={ContentFolderResourceTypeEnum.Journey}
+              folders={folders}
+              value={folderFilter}
+              onChange={setFolderFilter}
+            />
+            <Button
+              variant="contained"
+              sx={greyButtonStyle}
+              onClick={() => setDialogOpen(true)}
+              startIcon={<AddIcon />}
+            >
+              New Journey
+            </Button>
+          </Stack>
         </Stack>
         <TableContainer component={Paper}>
           <Table stickyHeader>
@@ -517,21 +650,10 @@ export default function JourneysTable() {
               ))}
             </TableHead>
             <TableBody>
-              {table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} hover>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
+              {tableRowsWithFolders}
               {!query.isFetching &&
                 !query.isLoading &&
-                journeysData.length === 0 && (
+                visibleJourneysData.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={columns.length} align="center">
                       No journeys found.
@@ -649,6 +771,23 @@ export default function JourneysTable() {
         </DialogActions>
       </Dialog>
 
+      <MoveToFolderDialog
+        open={moveTarget !== null}
+        onClose={() => setMoveTarget(null)}
+        folders={folders}
+        currentFolderId={moveTarget?.folderId ?? null}
+        resourceName={moveTarget?.name}
+        onConfirm={(folderId) => {
+          if (moveTarget) {
+            moveToFolderMutation.mutate({
+              id: moveTarget.id,
+              folderId,
+            });
+          }
+          setMoveTarget(null);
+        }}
+      />
+
       <Snackbar
         open={snackbarOpen}
         autoHideDuration={6000}
@@ -665,5 +804,6 @@ declare module "@tanstack/react-table" {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface TableMeta<TData = unknown> {
     duplicateJourney?: (journeyName: string) => void;
+    moveJourneyToFolder?: (row: Row) => void;
   }
 }

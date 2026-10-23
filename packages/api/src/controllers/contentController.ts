@@ -1,6 +1,11 @@
 import { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import { db } from "backend-lib/src/db";
 import * as schema from "backend-lib/src/db/schema";
+import {
+  deleteContentFolder,
+  getContentFolders,
+  upsertContentFolder,
+} from "backend-lib/src/contentFolders";
 import { deleteMessageTemplate } from "backend-lib/src/journeys";
 import { renderLiquid, RenderLiquidOptions } from "backend-lib/src/liquid";
 import logger from "backend-lib/src/logger";
@@ -28,11 +33,15 @@ import {
   BatchMessageUsersRequest,
   BatchMessageUsersResponse,
   ChannelType,
+  ContentFolder,
   DefaultEmailProviderResource,
+  DeleteContentFolderRequest,
   DeleteMessageTemplateRequest,
   EmailContentsType,
   EmailProviderType,
   EmptyResponse,
+  GetContentFoldersRequest,
+  GetContentFoldersResponse,
   GetMessageTemplatesRequest,
   GetMessageTemplatesResponse,
   InternalEventType,
@@ -51,6 +60,8 @@ import {
   RenderMessageTemplateType,
   ResetMessageTemplateResource,
   SmsProviderType,
+  UpsertContentFolderError,
+  UpsertContentFolderRequest,
   UpsertMessageTemplateResource,
   UpsertMessageTemplateValidationError,
   WebhookSecret,
@@ -413,6 +424,23 @@ export default async function contentController(fastify: FastifyInstance) {
                   },
                 });
               }
+              case SmsProviderType.Quo: {
+                const suggestions: string[] = [];
+                if (provider.message) {
+                  suggestions.push(provider.message);
+                } else {
+                  suggestions.push(
+                    "Failed to send SMS via Quo. Verify phone number format and Quo API key / from number configuration.",
+                  );
+                }
+                return reply.status(200).send({
+                  type: JsonResultType.Err,
+                  err: {
+                    suggestions,
+                    responseData: provider.message,
+                  },
+                });
+              }
               default: {
                 return reply.status(200).send({
                   type: JsonResultType.Err,
@@ -649,6 +677,74 @@ export default async function contentController(fastify: FastifyInstance) {
           message: "Failed to send batch messages",
         });
       }
+    },
+  );
+
+  fastify.withTypeProvider<TypeBoxTypeProvider>().get(
+    "/folders",
+    {
+      schema: {
+        description: "Get content folders for a workspace and resource type.",
+        tags: ["Content"],
+        querystring: GetContentFoldersRequest,
+        response: {
+          200: GetContentFoldersResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      const folders = await getContentFolders(request.query);
+      return reply.status(200).send({ folders });
+    },
+  );
+
+  fastify.withTypeProvider<TypeBoxTypeProvider>().put(
+    "/folders",
+    {
+      schema: {
+        description: "Create or update a content folder.",
+        tags: ["Content"],
+        body: UpsertContentFolderRequest,
+        response: {
+          200: ContentFolder,
+          400: UpsertContentFolderError,
+        },
+      },
+    },
+    async (request, reply) => {
+      const result = await upsertContentFolder(request.body);
+      if (result.isErr()) {
+        return reply.status(400).send(result.error);
+      }
+      return reply.status(200).send(result.value);
+    },
+  );
+
+  fastify.withTypeProvider<TypeBoxTypeProvider>().delete(
+    "/folders",
+    {
+      schema: {
+        description: "Delete a content folder. Folders must be empty.",
+        tags: ["Content"],
+        querystring: DeleteContentFolderRequest,
+        response: {
+          204: EmptyResponse,
+          404: EmptyResponse,
+          409: BaseMessageResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      const result = await deleteContentFolder(request.query);
+      if (result.isErr()) {
+        if (result.error.type === "NotFound") {
+          return reply.status(404).send();
+        }
+        return reply.status(409).send({
+          message: result.error.message,
+        });
+      }
+      return reply.status(204).send();
     },
   );
 }

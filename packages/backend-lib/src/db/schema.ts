@@ -48,6 +48,12 @@ export const dbResourceType = pgEnum("DBResourceType", [
   "Declarative",
   "Internal",
 ]);
+export const dbContentFolderResourceType = pgEnum("DBContentFolderResourceType", [
+  "Template",
+  "Journey",
+  "Segment",
+  "Broadcast",
+]);
 export const dbRoleType = pgEnum("DBRoleType", [
   "Admin",
   "WorkspaceManager",
@@ -137,6 +143,36 @@ export const segmentIoConfiguration = pgTable(
       columns: [table.workspaceId],
       foreignColumns: [workspace.id],
       name: "SegmentIOConfiguration_workspaceId_fkey",
+    })
+      .onUpdate("cascade")
+      .onDelete("cascade"),
+  ],
+);
+
+export const contentFolder = pgTable(
+  "content_folders",
+  {
+    id: uuid().primaryKey().defaultRandom().notNull(),
+    workspaceId: uuid().notNull(),
+    name: text().notNull(),
+    resourceType: dbContentFolderResourceType().notNull(),
+    createdAt: timestamp({ precision: 3, mode: "date" }).defaultNow().notNull(),
+    updatedAt: timestamp({ precision: 3, mode: "date" })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("content_folders_workspaceId_resourceType_name_key").using(
+      "btree",
+      table.workspaceId.asc().nullsLast().op("uuid_ops"),
+      table.resourceType.asc().nullsLast().op("enum_ops"),
+      table.name.asc().nullsLast().op("text_ops"),
+    ),
+    foreignKey({
+      columns: [table.workspaceId],
+      foreignColumns: [workspace.id],
+      name: "content_folders_workspaceId_fkey",
     })
       .onUpdate("cascade")
       .onDelete("cascade"),
@@ -402,6 +438,7 @@ export const broadcast = pgTable(
     }),
     version: dbBroadcastVersion().default("V1"),
     archived: boolean().default(false).notNull(),
+    folderId: uuid(),
     config: jsonb(),
   },
   (table) => [
@@ -438,6 +475,13 @@ export const broadcast = pgTable(
     })
       .onUpdate("cascade")
       .onDelete("set null"),
+    foreignKey({
+      columns: [table.folderId],
+      foreignColumns: [contentFolder.id],
+      name: "Broadcast_folderId_fkey",
+    })
+      .onUpdate("cascade")
+      .onDelete("restrict"),
   ],
 );
 
@@ -581,6 +625,7 @@ export const messageTemplate = pgTable(
       .notNull(),
     resourceType: dbResourceType().default("Declarative").notNull(),
     draft: jsonb(),
+    folderId: uuid(),
   },
   (table) => [
     uniqueIndex("MessageTemplate_workspaceId_name_key").using(
@@ -595,6 +640,13 @@ export const messageTemplate = pgTable(
     })
       .onUpdate("cascade")
       .onDelete("cascade"),
+    foreignKey({
+      columns: [table.folderId],
+      foreignColumns: [contentFolder.id],
+      name: "MessageTemplate_folderId_fkey",
+    })
+      .onUpdate("cascade")
+      .onDelete("restrict"),
   ],
 );
 
@@ -742,6 +794,7 @@ export const segment = pgTable(
       .notNull(),
     resourceType: dbResourceType().default("Declarative").notNull(),
     subscriptionGroupId: uuid(),
+    folderId: uuid(),
     status: segmentStatus().default("Running").notNull(),
     definitionUpdatedAt: timestamp({ precision: 3, mode: "date" })
       .defaultNow()
@@ -771,6 +824,13 @@ export const segment = pgTable(
     })
       .onUpdate("cascade")
       .onDelete("set null"),
+    foreignKey({
+      columns: [table.folderId],
+      foreignColumns: [contentFolder.id],
+      name: "Segment_folderId_fkey",
+    })
+      .onUpdate("cascade")
+      .onDelete("restrict"),
   ],
 );
 
@@ -843,6 +903,34 @@ export const smsProvider = pgTable(
   ],
 );
 
+export const quoMessageCorrelation = pgTable(
+  "QuoMessageCorrelation",
+  {
+    messageId: text().primaryKey(),
+    workspaceId: uuid().notNull(),
+    userId: text().notNull(),
+    templateId: text(),
+    createdAt: timestamp({ precision: 3, mode: "date" }).defaultNow().notNull(),
+    updatedAt: timestamp({ precision: 3, mode: "date" })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("QuoMessageCorrelation_workspaceId_idx").using(
+      "btree",
+      table.workspaceId.asc().nullsLast().op("uuid_ops"),
+    ),
+    foreignKey({
+      columns: [table.workspaceId],
+      foreignColumns: [workspace.id],
+      name: "QuoMessageCorrelation_workspaceId_fkey",
+    })
+      .onUpdate("cascade")
+      .onDelete("cascade"),
+  ],
+);
+
 export const journey = pgTable(
   "Journey",
   {
@@ -859,6 +947,7 @@ export const journey = pgTable(
     resourceType: dbResourceType().default("Declarative").notNull(),
     canRunMultiple: boolean().default(false).notNull(),
     draft: jsonb(),
+    folderId: uuid(),
     statusUpdatedAt: timestamp({ precision: 3, mode: "date" }),
   },
   (table) => [
@@ -874,6 +963,13 @@ export const journey = pgTable(
     })
       .onUpdate("cascade")
       .onDelete("cascade"),
+    foreignKey({
+      columns: [table.folderId],
+      foreignColumns: [contentFolder.id],
+      name: "Journey_folderId_fkey",
+    })
+      .onUpdate("cascade")
+      .onDelete("restrict"),
   ],
 );
 

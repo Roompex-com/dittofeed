@@ -30,6 +30,7 @@ import {
   broadcast as dbBroadcast,
   componentConfiguration as dbComponentConfiguration,
   computedPropertyPeriod as dbComputedPropertyPeriod,
+  contentFolder as dbContentFolder,
   DBWorkspaceOccupantType,
   emailProvider as dbEmailProvider,
   integration as dbIntegration,
@@ -114,6 +115,8 @@ export { dbJourneyStatus as JourneyStatus, dbWorkspaceType as WorkspaceType };
 export type JourneyInsert = typeof dbJourney.$inferInsert;
 
 export type Broadcast = InferSelectModel<typeof dbBroadcast>;
+
+export type ContentFolderModel = InferSelectModel<typeof dbContentFolder>;
 
 export type UserJourneyEvent = InferSelectModel<typeof dbUserJourneyEvent>;
 export interface EnrichedSegment extends Omit<Segment, "definition"> {
@@ -679,6 +682,35 @@ export type MailChimpEvent = Static<typeof MailChimpEvent>;
 export type SendgridEvent = Static<typeof SendgridEvent>;
 
 export type ResendEvent = Static<typeof ResendEvent>;
+
+export enum QuoWebhookEventType {
+  MessageReceived = "message.received",
+  MessageDelivered = "message.delivered",
+  MessageFailed = "message.failed",
+  MessageUndelivered = "message.undelivered",
+}
+
+export const QuoWebhookEvent = Type.Object(
+  {
+    id: Type.String(),
+    type: Type.Enum(QuoWebhookEventType),
+    data: Type.Object(
+      {
+        resource: Type.Object(
+          {
+            id: Type.String(),
+            errorCode: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+          },
+          { additionalProperties: true },
+        ),
+      },
+      { additionalProperties: true },
+    ),
+  },
+  { additionalProperties: true },
+);
+
+export type QuoWebhookEvent = Static<typeof QuoWebhookEvent>;
 
 export type PostMarkEvent = Static<typeof PostMarkEvent>;
 

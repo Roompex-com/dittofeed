@@ -1298,6 +1298,9 @@ function DefaultSmsConfig() {
       case SmsProviderType.SignalWire:
         name = "SignalWire";
         break;
+      case SmsProviderType.Quo:
+        name = "Quo";
+        break;
       case SmsProviderType.Test:
         name = "Test";
         break;
@@ -1551,6 +1554,77 @@ function SignalWireConfig() {
   );
 }
 
+function QuoConfig() {
+  const secretAvailability = useSecretAvailability();
+  return (
+    <Fields
+      sections={[
+        {
+          id: "quo-section",
+          fieldGroups: [
+            {
+              id: "quo-fields",
+              name: "Quo",
+              fields: [
+                {
+                  id: "quo-api-key",
+                  type: "secret",
+                  fieldProps: {
+                    name: SecretNames.Quo,
+                    secretKey: "apiKey",
+                    label: "API Key",
+                    helperText: "Quo API key used to authenticate requests",
+                    type: SmsProviderType.Quo,
+                    saved: isSecretSaved(
+                      SecretNames.Quo,
+                      "apiKey",
+                      secretAvailability,
+                    ),
+                  },
+                },
+                {
+                  id: "quo-from-number",
+                  type: "secret",
+                  fieldProps: {
+                    name: SecretNames.Quo,
+                    secretKey: "from",
+                    label: "From Number",
+                    helperText:
+                      "Quo phone number to send SMS from, in E.164 format (e.g. +15555555555)",
+                    type: SmsProviderType.Quo,
+                    saved: isSecretSaved(
+                      SecretNames.Quo,
+                      "from",
+                      secretAvailability,
+                    ),
+                  },
+                },
+                {
+                  id: "quo-webhook-secret",
+                  type: "secret",
+                  fieldProps: {
+                    name: SecretNames.Quo,
+                    secretKey: "webhookSecret",
+                    label: "Webhook Secret",
+                    helperText:
+                      "Quo webhook signing secret (whsec_...) used to verify inbound webhook signatures",
+                    type: SmsProviderType.Quo,
+                    saved: isSecretSaved(
+                      SecretNames.Quo,
+                      "webhookSecret",
+                      secretAvailability,
+                    ),
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ]}
+    />
+  );
+}
+
 function SmsChannelConfig() {
   return (
     <>
@@ -1558,6 +1632,7 @@ function SmsChannelConfig() {
       <DefaultSmsConfig />
       <Twilios />
       <SignalWireConfig />
+      <QuoConfig />
     </>
   );
 }
