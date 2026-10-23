@@ -1,12 +1,23 @@
 import { DittofeedSdk } from "@dittofeed/sdk-node";
 import backendConfigFromLib from "backend-lib/src/config";
+import {
+  extractEmbedTokenFromCookieHeader,
+  isLocalHostHostHeader,
+  serializeEmbedSessionCookie,
+  verifyEmbedSessionToken,
+} from "backend-lib/src/embedSession";
+import { EmbedTokenPayload } from "backend-lib/src/embedToken";
 import { getFeatures } from "backend-lib/src/features";
 import backendLogger from "backend-lib/src/logger";
-import { getRequestContext as getRequestContextFromLib } from "backend-lib/src/requestContext";
+import {
+  getEmbedRequestContext,
+  getRequestContext as getRequestContextFromLib,
+} from "backend-lib/src/requestContext";
 import {
   DFRequestContext,
   OpenIdProfile,
   RequestContextErrorType as BackendRequestContextErrorType,
+  RequestContextResult,
 } from "backend-lib/src/types";
 import {
   SINGLE_TENANT_LOGIN_PAGE,
@@ -14,7 +25,11 @@ import {
 } from "isomorphic-lib/src/constants";
 import { assertUnreachable } from "isomorphic-lib/src/typeAssertions";
 import { err, ok, Result } from "neverthrow";
-import { GetServerSideProps, NextApiRequest } from "next";
+import {
+  GetServerSideProps,
+  GetServerSidePropsContext,
+  NextApiRequest,
+} from "next";
 
 import { apiBase } from "./apiBase";
 import { GetDFServerSideProps, PropsWithInitialState } from "./types";
@@ -23,13 +38,116 @@ const backendConfig = backendConfigFromLib;
 const logger = backendLogger;
 const getRequestContext = getRequestContextFromLib;
 
+type EmbedPageAuth =
+  | { status: "unauthorized" }
+  | {
+      status: "authenticated";
+      payload: EmbedTokenPayload;
+      fromQuery: boolean;
+    };
+
+/**
+ * Embed page middleware: verifies the HMAC embed token for pages under
+ * /embed, accepting it from the `token` query parameter (initial iframe
+ * load) or from the `embed_session` cookie (subsequent navigations and
+ * reloads). An invalid, expired, or missing token renders a 401 page.
+ */
+function authenticateEmbedPage(
+  context: GetServerSidePropsContext,
+): EmbedPageAuth {
+  const queryToken =
+    typeof context.query.token === "string" ? context.query.token : null;
+  const cookieToken = extractEmbedTokenFromCookieHeader(
+    context.req.headers.cookie,
+  );
+  const token = queryToken ?? cookieToken;
+  if (!token) {
+    return { status: "unauthorized" };
+  }
+  const verified = verifyEmbedSessionToken(token);
+  if (verified.isErr()) {
+    return { status: "unauthorized" };
+  }
+  return {
+    status: "authenticated",
+    payload: verified.value,
+    fromQuery: queryToken !== null,
+  };
+}
+
+/**
+ * Matches the chrome-free embed pages, with or without the dashboard
+ * basePath, for both direct page loads and _next/data requests.
+ */
+const embedPagePathRegex = /^\/(dashboard\/)?embed(\/|$)/;
+
+function isEmbedPageContext(context: GetServerSidePropsContext): boolean {
+  const url = context.resolvedUrl ?? context.req.url ?? "";
+  return embedPagePathRegex.test(url);
+}
+
 export const requestContext: <T>(
   gssp: GetDFServerSideProps<PropsWithInitialState<T>>,
 ) => GetServerSideProps<PropsWithInitialState<T>> =
   (gssp) => async (context) => {
     const { profile } = context.req as { profile?: OpenIdProfile };
-    const rc = await getRequestContext(context.req.headers, profile);
     const { onboardingUrl } = backendConfig();
+
+    let rc: RequestContextResult;
+
+    if (isEmbedPageContext(context)) {
+      // Embed pages are token-authed: resolve the context from the verified
+      // embed token, scoped to the token's workspace only, and set the
+      // embed_session cookie when the token arrived via query parameter.
+      const embedAuth = authenticateEmbedPage(context);
+      if (embedAuth.status === "unauthorized") {
+        logger().info(
+          {
+            resolvedUrl: context.resolvedUrl,
+          },
+          "embed page token rejected",
+        );
+        return {
+          redirect: {
+            destination: "/embed/unauthorized",
+            permanent: false,
+          },
+        };
+      }
+      const embedRc = await getEmbedRequestContext({
+        workspaceId: embedAuth.payload.workspaceId,
+        occupantId: embedAuth.payload.occupantId,
+      });
+      if (embedRc.isErr()) {
+        logger().info(
+          {
+            error: embedRc.error,
+            workspaceId: embedAuth.payload.workspaceId,
+          },
+          "embed page request context rejected",
+        );
+        return {
+          redirect: {
+            destination: "/embed/unauthorized",
+            permanent: false,
+          },
+        };
+      }
+      if (embedAuth.fromQuery) {
+        context.res.setHeader(
+          "Set-Cookie",
+          serializeEmbedSessionCookie({
+            token: context.query.token as string,
+            expiresAtMs: embedAuth.payload.exp * 1000,
+            secure: !isLocalHostHostHeader(context.req.headers.host),
+          }),
+        );
+      }
+      rc = embedRc;
+    } else {
+      rc = await getRequestContext(context.req.headers, profile);
+    }
+
     if (rc.isErr()) {
       const { error } = rc;
       switch (error.type) {

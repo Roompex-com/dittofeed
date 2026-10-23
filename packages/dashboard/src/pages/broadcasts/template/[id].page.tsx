@@ -47,6 +47,7 @@ import SubscriptionGroupAutocomplete from "../../../components/subscriptionGroup
 import { addInitialStateToProps } from "../../../lib/addInitialStateToProps";
 import apiRequestHandlerFactory from "../../../lib/apiRequestHandlerFactory";
 import { useAppStorePick } from "../../../lib/appStore";
+import { useUniversalRouter } from "../../../lib/authModeProvider";
 import { getBroadcastMessageNode } from "../../../lib/broadcasts";
 import { requestContext } from "../../../lib/requestContext";
 import { AppState, PropsWithInitialState } from "../../../lib/types";
@@ -159,6 +160,7 @@ interface BroadcastTemplateState {
 const BroadcastTemplateInner: NextPage<BroadcastTemplateProps> =
   function BroadcastTemplateInner({ templateId, journeyId }) {
     const router = useRouter();
+    const universalRouter = useUniversalRouter();
     const { id } = router.query;
 
     const {
@@ -425,7 +427,10 @@ const BroadcastTemplateInner: NextPage<BroadcastTemplateProps> =
           <Typography fontWeight={400} variant="h2" sx={{ fontSize: 16 }}>
             Broadcast Message Template
           </Typography>
-          <Button LinkComponent={Link} href={`/broadcasts/review/${id}`}>
+          <Button
+            LinkComponent={Link}
+            href={universalRouter.mapUrl(`/broadcasts/review/${id}`)}
+          >
             Next
           </Button>
           <Box sx={{ minWidth: "12rem" }}>

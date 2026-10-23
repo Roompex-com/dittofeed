@@ -30,6 +30,7 @@ import usersController from "../controllers/usersController";
 import webhooksController from "../controllers/webhooksController";
 import { BuildAppOpts } from "../types";
 import adminAuth from "./adminAuth";
+import embedPageController from "./embedPageController";
 import requestContext from "./requestContext";
 
 export default async function router(
@@ -37,6 +38,10 @@ export default async function router(
   opts?: BuildAppOpts,
 ) {
   await fastify.register(indexController, { prefix: "/api" });
+
+  // token-authed embed page route (verify token -> set embed_session cookie
+  // -> serve the chrome-free page under /dashboard/embed/...)
+  await fastify.register(embedPageController, { prefix: "/embed" });
 
   // endpoints with standard authorization
   await fastify.register(

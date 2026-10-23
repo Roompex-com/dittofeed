@@ -97,6 +97,10 @@ const BaseRawConfigProps = {
   ),
   secretKey: Type.Optional(Type.String()),
   password: Type.Optional(Type.String()),
+  // Shared HMAC secret for embed tokens (env var DITTOFEED_EMBED_SECRET),
+  // used to sign and verify embed_session tokens for the token-authed
+  // /embed pages. See embedToken.ts / embedSession.ts.
+  dittofeedEmbedSecret: Type.Optional(Type.String()),
   computePropertiesWorkflowTaskTimeout: Type.Optional(
     Type.String({ format: "naturalNumber" }),
   ),
@@ -333,6 +337,7 @@ export const SECRETS = new Set<keyof Config>([
   "blobStorageAccessKeyId",
   "blobStorageSecretAccessKey",
   "hyperDxApiKey",
+  "dittofeedEmbedSecret",
   "databaseUrl", // Contains password
   "dashboardWriteKey", // Potentially sensitive
 ]);

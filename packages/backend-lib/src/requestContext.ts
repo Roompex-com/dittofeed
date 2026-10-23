@@ -22,6 +22,7 @@ import {
   OpenIdProfile,
   RequestContextErrorType,
   RequestContextResult,
+  RoleEnum,
   Workspace,
   WorkspaceMember,
   WorkspaceMemberResource,
@@ -410,6 +411,60 @@ async function getAnonymousRequestContext(): Promise<RequestContextResult> {
         workspaceName: workspace.name,
         workspaceMemberId: "anonymous",
         role: "Admin",
+      },
+    ],
+  });
+}
+
+/**
+ * Resolves a request context for a verified embed session token: an occupant
+ * of the token's workspace, with member level access, scoped to that workspace
+ * only. The workspace must exist and be active.
+ */
+export async function getEmbedRequestContext({
+  workspaceId,
+  occupantId,
+}: {
+  workspaceId: string;
+  occupantId: string;
+}): Promise<RequestContextResult> {
+  const workspace = await db().query.workspace.findFirst({
+    where: eq(dbWorkspace.id, workspaceId),
+  });
+  if (!workspace) {
+    return err({
+      type: RequestContextErrorType.ApplicationError,
+      message: `Workspace not found for embed session`,
+    });
+  }
+  if (workspace.status !== WorkspaceStatusDbEnum.Active) {
+    return err({
+      type: RequestContextErrorType.WorkspaceInactive,
+      message: "Workspace is not active",
+      workspace,
+    });
+  }
+  const member: WorkspaceMemberResource = {
+    id: occupantId,
+    email: `${occupantId}@embed.dittofeed.invalid`,
+    emailVerified: true,
+    name: "Embedded Session",
+    createdAt: new Date().toISOString(),
+  };
+  return ok({
+    workspace: {
+      id: workspace.id,
+      name: workspace.name,
+      type: workspace.type,
+      parentWorkspaceId: workspace.parentWorkspaceId ?? undefined,
+    },
+    member,
+    memberRoles: [
+      {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        workspaceMemberId: occupantId,
+        role: RoleEnum.Author,
       },
     ],
   });

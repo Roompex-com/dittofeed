@@ -95,15 +95,19 @@ export function useUniversalRouter() {
           router.push({ pathname: fullPath, query: fullQuery });
         };
         break;
-      case AuthModeTypeEnum.Base:
+      case AuthModeTypeEnum.Base: {
+        // When rendering under an embed page, internal navigation stays
+        // within the chrome-free /embed routes.
+        const embedPrefix = router.pathname.startsWith("/embed") ? "/embed" : "";
         basePath = "/dashboard";
-        mapUrl = (path: string, query?: Record<string, string>, opts = {}) => {
-          const fullPath = `${opts.includeBasePath ? "/dashboard" : ""}${path}`;
+        mapUrl = (path, query?, opts = {}) => {
+          const fullPath = `${opts.includeBasePath ? "/dashboard" : ""}${embedPrefix}${path}`;
           return `${fullPath}${opts.excludeQueryParams ? "" : `?${qs.stringify(query)}`}`;
         };
-        push = (path: string, query?: Record<string, string>) =>
-          router.push({ pathname: path, query });
+        push = (path, query?) =>
+          router.push({ pathname: `${embedPrefix}${path}`, query });
         break;
+      }
       default:
         assertUnreachable(authContext);
     }

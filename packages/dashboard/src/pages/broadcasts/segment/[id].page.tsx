@@ -18,6 +18,7 @@ import SegmentEditor, {
 } from "../../../components/segments/editor";
 import { addInitialStateToProps } from "../../../lib/addInitialStateToProps";
 import { useAppStorePick } from "../../../lib/appStore";
+import { useUniversalRouter } from "../../../lib/authModeProvider";
 import { requestContext } from "../../../lib/requestContext";
 import { getSegmentConfigState } from "../../../lib/segments";
 import { AppState, PropsWithInitialState } from "../../../lib/types";
@@ -101,6 +102,7 @@ export const getServerSideProps: GetServerSideProps<PropsWithInitialState> =
 
 export default function BroadcastSegment() {
   const router = useRouter();
+  const universalRouter = useUniversalRouter();
   const { broadcasts } = useAppStorePick([
     "broadcasts",
     "upsertSegment",
@@ -139,7 +141,10 @@ export default function BroadcastSegment() {
         <Typography fontWeight={400} variant="h2" sx={{ fontSize: 16 }}>
           Broadcast Segment
         </Typography>
-        <Button LinkComponent={Link} href={`/broadcasts/template/${id}`}>
+        <Button
+          LinkComponent={Link}
+          href={universalRouter.mapUrl(`/broadcasts/template/${id}`)}
+        >
           Next
         </Button>
       </Stack>

@@ -12,6 +12,11 @@ import {
 } from "isomorphic-lib/src/types";
 
 import { getWorkspaceIdentifier } from "../workspace";
+import {
+  applyEmbedRequestContext,
+  authenticateEmbedCookie,
+  embedSessionMatchesIdentifier,
+} from "./embedAuth";
 
 export type AuthenticateAdminKeyParams = {
   actualKey: string;
@@ -213,6 +218,71 @@ export async function authenticateAdminApiKey(
 // eslint-disable-next-line @typescript-eslint/require-await
 const adminAuth = fp(async (fastify: FastifyInstance) => {
   fastify.addHook("preHandler", async (request, reply) => {
+    // The embed_session cookie is an alternative authentication source on
+    // admin routes: verify the same HMAC, and resolve the request to an
+    // occupant of the token's workspace with member level access, scoped to
+    // that workspace only.
+    const embedAuth = await authenticateEmbedCookie(request);
+    if (embedAuth.outcome === "rejected") {
+      const errorMessage =
+        embedAuth.reason === "invalid-token"
+          ? "Embed session token is invalid or expired"
+          : "Embed session workspace is unavailable";
+      logger().info(
+        {
+          path: request.url,
+          method: request.method,
+          reason: embedAuth.reason,
+        },
+        errorMessage,
+      );
+      return reply.status(401).send({
+        message: errorMessage,
+      });
+    }
+    if (embedAuth.outcome === "authenticated") {
+      const workspaceIdentifierResult = await getWorkspaceIdentifier(request);
+      if (workspaceIdentifierResult.isErr()) {
+        return reply.status(400).send({
+          message: workspaceIdentifierResult.error.message,
+        });
+      }
+      const workspaceIdentifier = workspaceIdentifierResult.value;
+      if (!workspaceIdentifier) {
+        const errorMessage = "workspace identifier missing for request";
+        logger().info(
+          {
+            path: request.url,
+            method: request.method,
+          },
+          errorMessage,
+        );
+        return reply.status(401).send({
+          message: errorMessage,
+        });
+      }
+      const matchesWorkspace = await embedSessionMatchesIdentifier(
+        embedAuth.session,
+        workspaceIdentifier,
+      );
+      if (!matchesWorkspace) {
+        logger().info(
+          {
+            path: request.url,
+            method: request.method,
+            ...workspaceIdentifier,
+            embedWorkspaceId: embedAuth.session.workspaceId,
+          },
+          "embed session workspace does not match request",
+        );
+        return reply.status(403).send({
+          message: "Embed session is scoped to a different workspace.",
+        });
+      }
+      applyEmbedRequestContext(request, embedAuth.session, embedAuth.context);
+      return null;
+    }
+
     const workspaceIdentifierResult = await getWorkspaceIdentifier(request);
     if (workspaceIdentifierResult.isErr()) {
       logger().info(
@@ -300,6 +370,7 @@ const adminAuth = fp(async (fastify: FastifyInstance) => {
         messsage: errorMessage,
       });
     }
+    return null;
   });
 });
 

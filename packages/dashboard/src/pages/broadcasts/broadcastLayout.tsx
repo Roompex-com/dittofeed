@@ -17,6 +17,7 @@ import { EditableTitle } from "../../components/editableName/v2";
 import { SettingsCommand, SettingsMenu } from "../../components/settingsMenu";
 import apiRequestHandlerFactory from "../../lib/apiRequestHandlerFactory";
 import { useAppStorePick } from "../../lib/appStore";
+import { useUniversalRouter } from "../../lib/authModeProvider";
 import { getBroadcastMessageNode } from "../../lib/broadcasts";
 import { copyToClipboard } from "../../lib/copyToClipboard";
 import formatCurl from "../../lib/formatCurl";
@@ -75,6 +76,7 @@ export function BroadcastLayout({
   children: React.ReactNode;
   id: string;
 }) {
+  const universalRouter = useUniversalRouter();
   const {
     editedBroadcast,
     updateEditedBroadcast,
@@ -221,7 +223,7 @@ export function BroadcastLayout({
               <Step key={path} completed={false}>
                 <StepButton
                   color="inherit"
-                  href={`/broadcasts/${path}/${id}`}
+                  href={universalRouter.mapUrl(`/broadcasts/${path}/${id}`)}
                   LinkComponent={Link}
                 >
                   {name}
