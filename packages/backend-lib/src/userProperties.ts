@@ -66,12 +66,20 @@ export function toUserPropertyResource(
   userProperty: UserProperty,
 ): Result<UserPropertyResource, ValueError[]> {
   return enrichUserProperty(userProperty).map(
-    ({ workspaceId, name, id, definition, exampleValue }) => ({
+    ({
+      workspaceId,
+      name,
+      id,
+      definition,
+      exampleValue,
+      replicateToChildren,
+    }) => ({
       workspaceId,
       name,
       id,
       definition,
       exampleValue: exampleValue ?? undefined,
+      replicateToChildren,
       updatedAt: Number(userProperty.updatedAt),
     }),
   );
@@ -91,12 +99,14 @@ export function toSavedUserPropertyResource(
       exampleValue,
       definitionUpdatedAt,
       status,
+      replicateToChildren,
     }) => ({
       workspaceId,
       name,
       id,
       definition,
       exampleValue: exampleValue ?? undefined,
+      replicateToChildren,
       createdAt: createdAt.getTime(),
       updatedAt: updatedAt.getTime(),
       definitionUpdatedAt: definitionUpdatedAt.getTime(),
@@ -176,6 +186,28 @@ export async function findAllUserPropertyResources({
     updatedAt: up.updatedAt.getTime(),
     status: up.status,
   }));
+}
+
+/**
+ * Returns the user properties for a workspace which have
+ * replicateToChildren set to true. These are the properties which should be
+ * provisioned into child workspaces, e.g. when creating a new company
+ * workspace.
+ */
+export async function getReplicatedProperties({
+  workspaceId,
+}: {
+  workspaceId: string;
+}): Promise<UserProperty[]> {
+  return db()
+    .select()
+    .from(dbUserProperty)
+    .where(
+      and(
+        eq(dbUserProperty.workspaceId, workspaceId),
+        eq(dbUserProperty.replicateToChildren, true),
+      ),
+    );
 }
 
 export type UserPropertyAssignments = Record<string, JSONValue>;
@@ -691,6 +723,7 @@ export async function upsertUserProperty(
     definition,
     workspaceId,
     exampleValue,
+    replicateToChildren,
   }: UpsertUserPropertyResource = params;
   if (id && !validateUuid(id)) {
     return err({
@@ -720,6 +753,7 @@ export async function upsertUserProperty(
           name,
           definition,
           exampleValue,
+          replicateToChildren,
           definitionUpdatedAt,
         },
         target: [dbUserProperty.id],
@@ -729,6 +763,7 @@ export async function upsertUserProperty(
           definition,
           definitionUpdatedAt,
           exampleValue,
+          replicateToChildren,
         },
       });
     } else {
@@ -740,11 +775,13 @@ export async function upsertUserProperty(
           name,
           definition,
           exampleValue,
+          replicateToChildren,
         },
         set: {
           definition,
           definitionUpdatedAt,
           exampleValue,
+          replicateToChildren,
         },
         target: [dbUserProperty.workspaceId, dbUserProperty.name],
       });
@@ -759,6 +796,7 @@ export async function upsertUserProperty(
             definition,
             definitionUpdatedAt,
             exampleValue,
+            replicateToChildren,
           })
           .where(eq(dbUserProperty.id, id))
           .returning(),
@@ -771,6 +809,7 @@ export async function upsertUserProperty(
             definition,
             definitionUpdatedAt,
             exampleValue,
+            replicateToChildren,
           })
           .where(
             and(
@@ -814,6 +853,7 @@ export async function upsertUserProperty(
     workspaceId: userProperty.workspaceId,
     definition: userProperty.definition as UserPropertyDefinition,
     exampleValue: userProperty.exampleValue ?? undefined,
+    replicateToChildren: userProperty.replicateToChildren,
     updatedAt: userProperty.updatedAt.getTime(),
     createdAt: userProperty.createdAt.getTime(),
     definitionUpdatedAt: userProperty.definitionUpdatedAt.getTime(),

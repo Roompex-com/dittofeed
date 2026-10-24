@@ -2628,6 +2628,7 @@ export const UserPropertyResource = Type.Object({
   updatedAt: Type.Number(),
   lastRecomputed: Type.Optional(Type.Number()),
   status: Type.Optional(UserPropertyStatus),
+  replicateToChildren: Type.Optional(Type.Boolean()),
 });
 
 export type UserPropertyResource = Static<typeof UserPropertyResource>;

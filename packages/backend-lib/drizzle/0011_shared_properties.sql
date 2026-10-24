@@ -1,0 +1,1 @@
+ALTER TABLE "UserProperty" ADD COLUMN "replicateToChildren" boolean DEFAULT false NOT NULL;

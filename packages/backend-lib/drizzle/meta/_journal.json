@@ -78,6 +78,13 @@
       "when": 1792794183325,
       "tag": "0010_majestic_blink",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792821946583,
+      "tag": "0011_shared_properties",
+      "breakpoints": true
     }
   ]
 }

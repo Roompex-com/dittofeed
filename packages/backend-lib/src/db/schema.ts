@@ -197,6 +197,7 @@ export const userProperty = pgTable(
       .notNull(),
     status: userPropertyStatus().default("Running").notNull(),
     exampleValue: text(),
+    replicateToChildren: boolean().default(false).notNull(),
   },
   (table) => [
     uniqueIndex("UserProperty_workspaceId_name_key").using(

@@ -30,6 +30,7 @@ import {
   Paper,
   Snackbar,
   Stack,
+  Switch,
   SxProps,
   Table,
   TableBody,
@@ -85,10 +86,18 @@ export type UserPropertiesAllowedColumn =
   | "status"
   | "lastRecomputed"
   | "updatedAt"
+  | "replicateToChildren"
   | "actions";
 
 export const DEFAULT_ALLOWED_USER_PROPERTIES_COLUMNS: UserPropertiesAllowedColumn[] =
-  ["name", "status", "lastRecomputed", "updatedAt", "actions"];
+  [
+    "name",
+    "status",
+    "lastRecomputed",
+    "updatedAt",
+    "replicateToChildren",
+    "actions",
+  ];
 
 type Row = SavedUserPropertyResource & {
   disableDelete?: boolean;
@@ -315,6 +324,26 @@ function StatusCell({ getValue }: CellContext<Row, unknown>) {
   return <Typography variant="body2">{status}</Typography>;
 }
 
+function ReplicateToChildrenCell({ row, table }: CellContext<Row, unknown>) {
+  const { id, name, replicateToChildren, disableDelete } = row.original;
+  const setReplicateToChildren = table.options.meta?.setReplicateToChildren;
+
+  return (
+    <Tooltip
+      title="Included when provisioning new company workspaces"
+      placement="bottom-start"
+    >
+      <Switch
+        size="small"
+        aria-label={`Replicate to companies: ${name}`}
+        checked={replicateToChildren ?? false}
+        disabled={disableDelete}
+        onChange={(e) => setReplicateToChildren?.(id, e.target.checked)}
+      />
+    </Tooltip>
+  );
+}
+
 export default function UserPropertiesTable({
   sx,
   columnAllowList = DEFAULT_ALLOWED_USER_PROPERTIES_COLUMNS,
@@ -421,6 +450,31 @@ export default function UserPropertiesTable({
 
   const statusMutation = useUserPropertyStatusMutation();
 
+  const replicateToChildrenMutation = useUpsertUserPropertyMutation({
+    onSuccess: () => {
+      setSnackbarMessage("User property replication setting updated!");
+      setSnackbarOpen(true);
+    },
+    onError: (error) => {
+      const errorMsg = error.response?.data.message ?? "API Error";
+      setSnackbarMessage(`Failed to update replication setting: ${errorMsg}`);
+      setSnackbarOpen(true);
+    },
+  });
+
+  const handleSetReplicateToChildren = (
+    userPropertyId: string,
+    name: string,
+    replicateToChildren: boolean,
+  ) => {
+    if (replicateToChildrenMutation.isPending) return;
+    replicateToChildrenMutation.mutate({
+      id: userPropertyId,
+      name,
+      replicateToChildren,
+    });
+  };
+
   const handleToggleUserPropertyStatus = (
     userPropertyId: string,
     newStatus: "NotStarted" | "Running" | "Paused",
@@ -488,6 +542,12 @@ export default function UserPropertiesTable({
         accessorKey: "updatedAt",
         cell: TimeCell,
       },
+      replicateToChildren: {
+        id: "replicateToChildren",
+        header: "Replicate to Companies",
+        accessorKey: "replicateToChildren",
+        cell: ReplicateToChildrenCell,
+      },
       actions: {
         id: "actions",
         header: "",
@@ -529,6 +589,22 @@ export default function UserPropertiesTable({
         newStatus: "NotStarted" | "Running" | "Paused",
       ) => {
         handleToggleUserPropertyStatus(userPropertyId, newStatus);
+      },
+      setReplicateToChildren: (
+        userPropertyId: string,
+        replicateToChildren: boolean,
+      ) => {
+        const userProperty = userPropertiesData.find(
+          (up) => up.id === userPropertyId,
+        );
+        if (!userProperty) {
+          return;
+        }
+        handleSetReplicateToChildren(
+          userPropertyId,
+          userProperty.name,
+          replicateToChildren,
+        );
       },
     },
   });
@@ -789,6 +865,10 @@ declare module "@tanstack/react-table" {
     toggleUserPropertyStatus?: (
       userPropertyId: string,
       newStatus: "NotStarted" | "Running" | "Paused",
+    ) => void;
+    setReplicateToChildren?: (
+      userPropertyId: string,
+      replicateToChildren: boolean,
     ) => void;
   }
 }
