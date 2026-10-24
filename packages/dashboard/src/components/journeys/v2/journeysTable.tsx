@@ -66,13 +66,13 @@ import Link from "next/link";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { useUniversalRouter } from "../../../lib/authModeProvider";
-import { useCreateJourneyMutation } from "../../../lib/useCreateJourneyMutation";
 import {
   ALL_FOLDERS_FILTER,
   ROOT_FOLDER_FILTER,
   useContentFoldersQuery,
   useMoveToFolderMutation,
 } from "../../../lib/useContentFolders";
+import { useCreateJourneyMutation } from "../../../lib/useCreateJourneyMutation";
 import { useDeleteJourneyMutation } from "../../../lib/useDeleteJourneyMutation";
 import { useDuplicateResourceMutation } from "../../../lib/useDuplicateResourceMutation";
 import { useJourneyMutation } from "../../../lib/useJourneyMutation";
@@ -81,6 +81,7 @@ import {
   FolderFilterSelect,
   FolderGroupHeaderRow,
   MoveToFolderDialog,
+  useFolderExpansion,
 } from "../../folders/folderControls";
 import { GreyButton, greyButtonStyle } from "../../greyButtonStyle";
 import { DEFAULT_EDGES, DEFAULT_JOURNEY_NODES } from "../defaults";
@@ -431,10 +432,10 @@ export default function JourneysTable() {
         enableHiding: true,
         sortingFn: (a, b) => {
           const rankA = a.original.folderId
-            ? (folderRank.get(a.original.folderId) ?? Number.MAX_SAFE_INTEGER)
+            ? folderRank.get(a.original.folderId) ?? Number.MAX_SAFE_INTEGER
             : Number.MAX_SAFE_INTEGER;
           const rankB = b.original.folderId
-            ? (folderRank.get(b.original.folderId) ?? Number.MAX_SAFE_INTEGER)
+            ? folderRank.get(b.original.folderId) ?? Number.MAX_SAFE_INTEGER
             : Number.MAX_SAFE_INTEGER;
           return rankA - rankB;
         },
@@ -505,6 +506,19 @@ export default function JourneysTable() {
     },
   });
 
+  const { expandedFolders, toggleFolderExpanded } = useFolderExpansion();
+
+  const folderCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const journey of visibleJourneysData) {
+      const { folderId } = journey;
+      if (folderId) {
+        counts.set(folderId, (counts.get(folderId) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [visibleJourneysData]);
+
   const tableRowsWithFolders: React.ReactNode[] = [];
   let lastFolderKey: string | null | undefined;
   for (const row of table.getRowModel().rows) {
@@ -515,13 +529,21 @@ export default function JourneysTable() {
           key={`folder-header-${folderKey ?? "root"}`}
           label={
             folderKey
-              ? (folderNameById.get(folderKey) ?? "Unknown folder")
+              ? folderNameById.get(folderKey) ?? "Unknown folder"
               : "Unfiled"
           }
           colSpan={table.getVisibleLeafColumns().length}
+          count={folderKey ? folderCounts.get(folderKey) : undefined}
+          expanded={folderKey ? expandedFolders.has(folderKey) : false}
+          onToggle={
+            folderKey ? () => toggleFolderExpanded(folderKey) : undefined
+          }
         />,
       );
       lastFolderKey = folderKey;
+    }
+    if (folderKey && !expandedFolders.has(folderKey)) {
+      continue;
     }
     tableRowsWithFolders.push(
       <TableRow key={row.id} hover>

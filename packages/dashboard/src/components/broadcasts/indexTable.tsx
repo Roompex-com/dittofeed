@@ -73,18 +73,19 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useUniversalRouter } from "../../lib/authModeProvider";
 import { useArchiveBroadcastMutation } from "../../lib/useArchiveBroadcastMutation";
 import { useBroadcastsQuery } from "../../lib/useBroadcastsQuery";
-import { useCreateBroadcastMutation } from "../../lib/useCreateBroadcastMutation";
 import {
   ALL_FOLDERS_FILTER,
   ROOT_FOLDER_FILTER,
   useContentFoldersQuery,
   useMoveToFolderMutation,
 } from "../../lib/useContentFolders";
+import { useCreateBroadcastMutation } from "../../lib/useCreateBroadcastMutation";
 import { useDuplicateResourceMutation } from "../../lib/useDuplicateResourceMutation";
 import {
   FolderFilterSelect,
   FolderGroupHeaderRow,
   MoveToFolderDialog,
+  useFolderExpansion,
 } from "../folders/folderControls";
 import { GreyButton, greyButtonStyle } from "../greyButtonStyle";
 
@@ -480,10 +481,10 @@ export default function BroadcastsTable() {
         enableHiding: true,
         sortingFn: (a, b) => {
           const rankA = a.original.folderId
-            ? (folderRank.get(a.original.folderId) ?? Number.MAX_SAFE_INTEGER)
+            ? folderRank.get(a.original.folderId) ?? Number.MAX_SAFE_INTEGER
             : Number.MAX_SAFE_INTEGER;
           const rankB = b.original.folderId
-            ? (folderRank.get(b.original.folderId) ?? Number.MAX_SAFE_INTEGER)
+            ? folderRank.get(b.original.folderId) ?? Number.MAX_SAFE_INTEGER
             : Number.MAX_SAFE_INTEGER;
           return rankA - rankB;
         },
@@ -559,6 +560,19 @@ export default function BroadcastsTable() {
     },
   });
 
+  const { expandedFolders, toggleFolderExpanded } = useFolderExpansion();
+
+  const folderCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const broadcast of visibleBroadcastsData) {
+      const { folderId } = broadcast;
+      if (folderId) {
+        counts.set(folderId, (counts.get(folderId) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [visibleBroadcastsData]);
+
   const tableRowsWithFolders: React.ReactNode[] = [];
   let lastFolderKey: string | null | undefined;
   for (const row of table.getRowModel().rows) {
@@ -569,13 +583,21 @@ export default function BroadcastsTable() {
           key={`folder-header-${folderKey ?? "root"}`}
           label={
             folderKey
-              ? (folderNameById.get(folderKey) ?? "Unknown folder")
+              ? folderNameById.get(folderKey) ?? "Unknown folder"
               : "Unfiled"
           }
           colSpan={table.getVisibleLeafColumns().length}
+          count={folderKey ? folderCounts.get(folderKey) : undefined}
+          expanded={folderKey ? expandedFolders.has(folderKey) : false}
+          onToggle={
+            folderKey ? () => toggleFolderExpanded(folderKey) : undefined
+          }
         />,
       );
       lastFolderKey = folderKey;
+    }
+    if (folderKey && !expandedFolders.has(folderKey)) {
+      continue;
     }
     tableRowsWithFolders.push(
       <TableRow

@@ -99,6 +99,7 @@ import {
   FolderFilterSelect,
   FolderGroupHeaderRow,
   MoveToFolderDialog,
+  useFolderExpansion,
 } from "../folders/folderControls";
 import { GreyButton, greyButtonStyle } from "../greyButtonStyle";
 import { RelatedResourceSelect } from "../resourceTable";
@@ -598,10 +599,10 @@ export function SegmentsTable({
       enableHiding: true,
       sortingFn: (a, b) => {
         const rankA = a.original.folderId
-          ? (folderRank.get(a.original.folderId) ?? Number.MAX_SAFE_INTEGER)
+          ? folderRank.get(a.original.folderId) ?? Number.MAX_SAFE_INTEGER
           : Number.MAX_SAFE_INTEGER;
         const rankB = b.original.folderId
-          ? (folderRank.get(b.original.folderId) ?? Number.MAX_SAFE_INTEGER)
+          ? folderRank.get(b.original.folderId) ?? Number.MAX_SAFE_INTEGER
           : Number.MAX_SAFE_INTEGER;
         return rankA - rankB;
       },
@@ -702,6 +703,19 @@ export function SegmentsTable({
     },
   });
 
+  const { expandedFolders, toggleFolderExpanded } = useFolderExpansion();
+
+  const folderCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const segment of visibleSegmentsData) {
+      const { folderId } = segment;
+      if (folderId) {
+        counts.set(folderId, (counts.get(folderId) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [visibleSegmentsData]);
+
   const tableRowsWithFolders: React.ReactNode[] = [];
   let lastFolderKey: string | null | undefined;
   for (const row of table.getRowModel().rows) {
@@ -712,13 +726,21 @@ export function SegmentsTable({
           key={`folder-header-${folderKey ?? "root"}`}
           label={
             folderKey
-              ? (folderNameById.get(folderKey) ?? "Unknown folder")
+              ? folderNameById.get(folderKey) ?? "Unknown folder"
               : "Unfiled"
           }
           colSpan={table.getVisibleLeafColumns().length}
+          count={folderKey ? folderCounts.get(folderKey) : undefined}
+          expanded={folderKey ? expandedFolders.has(folderKey) : false}
+          onToggle={
+            folderKey ? () => toggleFolderExpanded(folderKey) : undefined
+          }
         />,
       );
       lastFolderKey = folderKey;
+    }
+    if (folderKey && !expandedFolders.has(folderKey)) {
+      continue;
     }
     tableRowsWithFolders.push(
       <TableRow

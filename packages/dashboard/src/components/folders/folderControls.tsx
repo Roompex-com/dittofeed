@@ -1,9 +1,12 @@
 import {
   CreateNewFolder as CreateNewFolderIcon,
   Folder as FolderIcon,
+  KeyboardArrowDown,
+  KeyboardArrowRight,
 } from "@mui/icons-material";
 import {
   Button,
+  ButtonBase,
   Dialog,
   DialogActions,
   DialogContent,
@@ -21,8 +24,11 @@ import {
   Typography,
   useTheme,
 } from "@mui/material";
-import { ContentFolder, ContentFolderResourceType } from "isomorphic-lib/src/types";
-import React, { useEffect, useState } from "react";
+import {
+  ContentFolder,
+  ContentFolderResourceType,
+} from "isomorphic-lib/src/types";
+import React, { useCallback, useEffect, useState } from "react";
 
 import {
   ALL_FOLDERS_FILTER,
@@ -227,40 +233,118 @@ export function MoveToFolderDialog({
   );
 }
 
-/** Section header row grouping a resource table's rows by folder. */
+/**
+ * Local (unpersisted) expansion state for folder groups in a resource list
+ * table. Folders are collapsed by default; the unfiled/root group is not
+ * collapsible and always rendered expanded.
+ */
+export function useFolderExpansion() {
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  const toggleFolderExpanded = useCallback((folderId: string) => {
+    setExpandedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderId)) {
+        next.delete(folderId);
+      } else {
+        next.add(folderId);
+      }
+      return next;
+    });
+  }, []);
+
+  return { expandedFolders, toggleFolderExpanded };
+}
+
+/**
+ * Section header row grouping a resource table's rows by folder. When
+ * `onToggle` is provided the header becomes a collapsible toggle button
+ * (chevron + folder name + item count, full-row click target, keyboard
+ * accessible); otherwise it renders as a static section header.
+ */
 export function FolderGroupHeaderRow({
   label,
   colSpan,
+  count,
+  expanded = false,
+  onToggle,
 }: {
   label: string;
   colSpan: number;
+  count?: number;
+  expanded?: boolean;
+  onToggle?: () => void;
 }) {
   const theme = useTheme();
+  const collapsible = typeof onToggle === "function";
+
+  const content = (
+    <Stack direction="row" spacing={1} alignItems="center">
+      {collapsible &&
+        (expanded ? (
+          <KeyboardArrowDown
+            fontSize="small"
+            sx={{ color: "text.secondary" }}
+          />
+        ) : (
+          <KeyboardArrowRight
+            fontSize="small"
+            sx={{ color: "text.secondary" }}
+          />
+        ))}
+      <FolderIcon fontSize="small" sx={{ color: "text.secondary" }} />
+      <Tooltip title={label} placement="bottom-start">
+        <Typography
+          variant="subtitle2"
+          color="text.secondary"
+          sx={{
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {label}
+        </Typography>
+      </Tooltip>
+      {typeof count === "number" && (
+        <Typography variant="caption" color="text.secondary">
+          ({count})
+        </Typography>
+      )}
+    </Stack>
+  );
+
   return (
     <TableRow>
       <TableCell
         colSpan={colSpan}
-        sx={{
-          py: theme.spacing(0.5),
-          bgcolor: "action.hover",
-        }}
+        sx={
+          collapsible
+            ? { p: 0, bgcolor: "action.hover" }
+            : { py: theme.spacing(0.5), bgcolor: "action.hover" }
+        }
       >
-        <Stack direction="row" spacing={1} alignItems="center">
-          <FolderIcon fontSize="small" sx={{ color: "text.secondary" }} />
-          <Tooltip title={label} placement="bottom-start">
-            <Typography
-              variant="subtitle2"
-              color="text.secondary"
-              sx={{
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {label}
-            </Typography>
-          </Tooltip>
-        </Stack>
+        {collapsible ? (
+          <ButtonBase
+            onClick={onToggle}
+            aria-expanded={expanded}
+            sx={{
+              display: "flex",
+              width: "100%",
+              justifyContent: "flex-start",
+              py: theme.spacing(0.5),
+              px: 2,
+              textAlign: "left",
+              "&:hover": { bgcolor: "action.selected" },
+            }}
+          >
+            {content}
+          </ButtonBase>
+        ) : (
+          content
+        )}
       </TableCell>
     </TableRow>
   );
