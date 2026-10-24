@@ -1847,6 +1847,7 @@ const MessageTemplateResourceProperties = {
   definition: Type.Optional(MessageTemplateResourceDefinition),
   draft: Type.Optional(MessageTemplateResourceDraft),
   folderId: Type.Optional(Nullable(Type.String())),
+  audience: Type.Optional(Nullable(Type.String())),
   updatedAt: Type.Number(),
 } as const;
 
@@ -1872,6 +1873,7 @@ export const UpsertMessageTemplateResource = Type.Object({
   definition: Type.Optional(MessageTemplateResourceDefinition),
   draft: Type.Optional(Nullable(MessageTemplateResourceDraft)),
   folderId: Type.Optional(Nullable(Type.String())),
+  audience: Type.Optional(Nullable(Type.String())),
   resourceType: Type.Optional(ResourceType),
 });
 
@@ -1914,6 +1916,7 @@ export const GetMessageTemplatesRequest = Type.Object(
     workspaceId: Type.String(),
     ids: Type.Optional(Type.Array(Type.String())),
     resourceType: Type.Optional(ResourceType),
+    audience: Type.Optional(Type.String()),
   },
   {
     $id: "GetMessageTemplatesRequest",

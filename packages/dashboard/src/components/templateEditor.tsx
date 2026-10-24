@@ -16,6 +16,7 @@ import {
   Divider,
   FormLabel,
   IconButton,
+  MenuItem,
   Slide,
   Stack,
   styled,
@@ -111,6 +112,17 @@ const USER_PROPERTY_WARNING_KEY = "user-property-warning";
 
 const USER_PROPERTIES_TOOLTIP =
   "Edit an example user's properties to see the edits reflected in the rendered template. Properties are computed from user Identify traits and Track events.";
+
+// Roompex audience vocab for message templates. Null / unset means the
+// template applies to any audience.
+const AUDIENCE_OPTIONS = [
+  { value: "", label: "Any" },
+  { value: "lead", label: "Lead" },
+  { value: "tenant", label: "Tenant" },
+  { value: "landlord", label: "Landlord" },
+  { value: "vendor", label: "Vendor" },
+  { value: "member", label: "Member" },
+];
 
 function TransitionInner(
   props: TransitionProps & {
@@ -1318,6 +1330,29 @@ export default function TemplateEditor({
             isMinimised={isUserPropertiesMinimised}
           />
         </>
+      )}
+
+      {!isUserPropertiesMinimised && (
+        <TextField
+          select
+          size="small"
+          label="Audience"
+          disabled={disabled}
+          value={template.audience ?? ""}
+          onChange={(e) =>
+            updateTemplate({
+              id: templateId,
+              name: template.name,
+              audience: e.target.value === "" ? null : e.target.value,
+            })
+          }
+        >
+          {AUDIENCE_OPTIONS.map((option) => (
+            <MenuItem key={option.value} value={option.value}>
+              {option.label}
+            </MenuItem>
+          ))}
+        </TextField>
       )}
 
       <LoadingModal

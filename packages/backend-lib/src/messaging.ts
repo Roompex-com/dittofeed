@@ -139,6 +139,7 @@ export function enrichMessageTemplate({
   definition,
   draft,
   folderId,
+  audience,
   updatedAt,
 }: Overwrite<
   MessageTemplate,
@@ -172,6 +173,7 @@ export function enrichMessageTemplate({
     type,
     updatedAt: Number(updatedAt),
     ...(folderId ? { folderId } : {}),
+    ...(audience ? { audience } : {}),
     ...(enrichedDefinition.value
       ? { definition: enrichedDefinition.value }
       : {}),
@@ -260,6 +262,7 @@ export async function upsertMessageTemplate(
               definition: data.definition,
               draft: data.draft,
               folderId: data.folderId ?? null,
+              audience: data.audience ?? null,
               resourceType: data.resourceType,
             })
             .returning(),
@@ -309,6 +312,7 @@ export async function upsertMessageTemplate(
             definition: data.definition,
             draft: requiresDraftReset ? null : data.draft,
             ...(data.folderId !== undefined ? { folderId: data.folderId } : {}),
+            ...(data.audience !== undefined ? { audience: data.audience } : {}),
             resourceType: data.resourceType,
           })
           .where(eq(dbMessageTemplate.id, existingTemplate.id))

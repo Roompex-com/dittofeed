@@ -17,7 +17,7 @@ import {
 } from "backend-lib/src/messaging";
 import { Secret } from "backend-lib/src/types";
 import { randomUUID } from "crypto";
-import { and, eq, inArray, SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, SQL } from "drizzle-orm";
 import { toMjml } from "emailo/src/toMjml";
 import { FastifyInstance } from "fastify";
 import { CHANNEL_IDENTIFIERS } from "isomorphic-lib/src/channels";
@@ -206,6 +206,16 @@ export default async function contentController(fastify: FastifyInstance) {
       if (request.query.resourceType) {
         conditions.push(
           eq(schema.messageTemplate.resourceType, request.query.resourceType),
+        );
+      }
+      if (request.query.audience !== undefined) {
+        // Exact match on the audience value, plus templates with no audience
+        // (null means the template applies to any audience).
+        conditions.push(
+          or(
+            eq(schema.messageTemplate.audience, request.query.audience),
+            isNull(schema.messageTemplate.audience),
+          ) as SQL,
         );
       }
       const templateModels = await db().query.messageTemplate.findMany({

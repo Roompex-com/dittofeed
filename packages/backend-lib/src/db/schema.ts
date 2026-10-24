@@ -627,6 +627,7 @@ export const messageTemplate = pgTable(
     resourceType: dbResourceType().default("Declarative").notNull(),
     draft: jsonb(),
     folderId: uuid(),
+    audience: text(),
   },
   (table) => [
     uniqueIndex("MessageTemplate_workspaceId_name_key").using(
