@@ -48,9 +48,9 @@ import {
   ColumnDef,
   flexRender,
   getCoreRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   OnChangeFn,
+  Row as TanStackRow,
   SortingState,
   useReactTable,
 } from "@tanstack/react-table";
@@ -108,6 +108,54 @@ type Row = MessageTemplateResource & {
 };
 
 const ROW_HEIGHT = "60px";
+
+/**
+ * Packs the sorted row model into group-aware pages: whole folder groups stay
+ * together, a new page starts when the current page is non-empty and the next
+ * group would exceed pageSize, and a group larger than pageSize starts on a
+ * fresh page and spans consecutive pageSize-bounded pages (its header repeats
+ * on each of those pages).
+ */
+function buildGroupAwarePages(
+  sortedRows: TanStackRow<Row>[],
+  pageSize: number,
+): TanStackRow<Row>[][] {
+  // Partition the sorted rows into contiguous folder groups.
+  const groups: TanStackRow<Row>[][] = [];
+  let currentGroup: TanStackRow<Row>[] | null = null;
+  let lastFolderKey: string | null | undefined;
+  for (const row of sortedRows) {
+    const folderKey = row.original.folderId ?? null;
+    if (!currentGroup || folderKey !== lastFolderKey) {
+      currentGroup = [];
+      groups.push(currentGroup);
+      lastFolderKey = folderKey;
+    }
+    currentGroup.push(row);
+  }
+
+  // Pack whole groups into pages; oversized groups are chunked so they can
+  // span multiple pages without exceeding pageSize on any single page.
+  const pages: TanStackRow<Row>[][] = [];
+  let currentPage: TanStackRow<Row>[] = [];
+  for (const group of groups) {
+    for (let offset = 0; offset < group.length; offset += pageSize) {
+      const chunk = group.slice(offset, offset + pageSize);
+      if (
+        currentPage.length > 0 &&
+        currentPage.length + chunk.length > pageSize
+      ) {
+        pages.push(currentPage);
+        currentPage = [];
+      }
+      currentPage.push(...chunk);
+    }
+  }
+  if (currentPage.length > 0) {
+    pages.push(currentPage);
+  }
+  return pages;
+}
 
 // TimeCell for displaying timestamps like updatedAt
 // Adapted from packages/dashboard/src/pages/segments/index.page.tsx
@@ -720,11 +768,8 @@ export default function TemplatesTable({
     data: visibleTemplatesData,
     getSortedRowModel: getSortedRowModel(),
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    onPaginationChange: setPagination,
     onSortingChange: handleSortingChange,
     state: {
-      pagination,
       sorting,
       columnVisibility: { folderId: false },
     },
@@ -762,9 +807,29 @@ export default function TemplatesTable({
     return counts;
   }, [visibleTemplatesData]);
 
+  // Group-aware pagination, computed from the sorted row model so a page
+  // boundary never splits a folder group.
+  const sortedRows = table.getRowModel().rows;
+  const groupAwarePages = useMemo(
+    () => buildGroupAwarePages(sortedRows, pagination.pageSize),
+    [sortedRows, pagination.pageSize],
+  );
+  const pageCount = groupAwarePages.length;
+  const maxPageIndex = Math.max(0, pageCount - 1);
+  const pageIndex = Math.min(pagination.pageIndex, maxPageIndex);
+
+  // Clamp the stored pageIndex when the page count shrinks (e.g. folder
+  // filter change) so an empty page is never rendered while data exists.
+  useEffect(() => {
+    if (pagination.pageIndex > maxPageIndex) {
+      setPagination((prev) => ({ ...prev, pageIndex: maxPageIndex }));
+    }
+  }, [pagination.pageIndex, maxPageIndex]);
+
+  const pageRows = groupAwarePages[pageIndex] ?? [];
   const tableRowsWithFolders: React.ReactNode[] = [];
   let lastFolderKey: string | null | undefined;
-  for (const row of table.getRowModel().rows) {
+  for (const row of pageRows) {
     const folderKey = row.original.folderId ?? null;
     if (folderKey !== lastFolderKey) {
       tableRowsWithFolders.push(
@@ -937,31 +1002,46 @@ export default function TemplatesTable({
                 >
                   <Stack direction="row" alignItems="center" spacing={2}>
                     <GreyButton
-                      onClick={() => table.setPageIndex(0)}
-                      disabled={!table.getCanPreviousPage()}
+                      onClick={() =>
+                        setPagination((prev) => ({ ...prev, pageIndex: 0 }))
+                      }
+                      disabled={pageIndex <= 0}
                       startIcon={<KeyboardDoubleArrowLeft />}
                     >
                       First
                     </GreyButton>
                     <GreyButton
-                      onClick={() => table.previousPage()}
-                      disabled={!table.getCanPreviousPage()}
+                      onClick={() =>
+                        setPagination((prev) => ({
+                          ...prev,
+                          pageIndex: pageIndex - 1,
+                        }))
+                      }
+                      disabled={pageIndex <= 0}
                       startIcon={<KeyboardArrowLeft />}
                     >
                       Previous
                     </GreyButton>
                     <GreyButton
-                      onClick={() => table.nextPage()}
-                      disabled={!table.getCanNextPage()}
+                      onClick={() =>
+                        setPagination((prev) => ({
+                          ...prev,
+                          pageIndex: pageIndex + 1,
+                        }))
+                      }
+                      disabled={pageIndex >= maxPageIndex}
                       endIcon={<KeyboardArrowRight />}
                     >
                       Next
                     </GreyButton>
                     <GreyButton
                       onClick={() =>
-                        table.setPageIndex(table.getPageCount() - 1)
+                        setPagination((prev) => ({
+                          ...prev,
+                          pageIndex: maxPageIndex,
+                        }))
                       }
-                      disabled={!table.getCanNextPage()}
+                      disabled={pageIndex >= maxPageIndex}
                       endIcon={<KeyboardDoubleArrowRight />}
                     >
                       Last
@@ -984,8 +1064,7 @@ export default function TemplatesTable({
                     <Typography variant="body2" color="text.secondary">
                       Page{" "}
                       <strong>
-                        {table.getState().pagination.pageIndex + 1} of{" "}
-                        {Math.max(1, table.getPageCount())}
+                        {pageIndex + 1} of {Math.max(1, pageCount)}
                       </strong>
                     </Typography>
                   </Stack>
