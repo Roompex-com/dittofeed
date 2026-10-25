@@ -8,6 +8,7 @@ import {
   CompletionStatus,
   RenderMessageTemplateRequestContents,
   RenderMessageTemplateType,
+  UserPropertyResource,
   WorkspaceMemberResource,
 } from "isomorphic-lib/src/types";
 
@@ -79,14 +80,21 @@ export default function WebhookEditor({
       disabled={disabled}
       hideTitle={hideTitle}
       hidePublisher={hidePublisher}
-      renderEditorHeader={({ draft, setDraft }) => {
+      renderEditorHeader={({
+        draft,
+        setDraft,
+        userProperties: userPropertiesParam,
+      }) => {
         if (draft.type !== ChannelType.Webhook) {
           return null;
         }
-        const options =
-          userProperties.type === CompletionStatus.Successful
-            ? userProperties.value.map((up) => up.name)
-            : [];
+        let availableUserProperties: UserPropertyResource[] = [];
+        if (userPropertiesParam !== undefined) {
+          availableUserProperties = userPropertiesParam;
+        } else if (userProperties.type === CompletionStatus.Successful) {
+          availableUserProperties = userProperties.value;
+        }
+        const options = availableUserProperties.map((up) => up.name);
         return (
           <Autocomplete
             disabled={disabled}

@@ -271,6 +271,8 @@ export interface RenderEditorParams {
   draft: MessageTemplateResourceDraft;
   disabled: boolean;
   inDraftView: boolean;
+  // User properties offered for this template, already audience-filtered.
+  userProperties?: UserPropertyResource[];
 }
 
 export type RenderEditorSection = (args: RenderEditorParams) => React.ReactNode;
@@ -317,6 +319,28 @@ function getUserPropertyValues({
     });
   }
   return userPropertyAssignments;
+}
+
+// Roompex audience scoping: a user property is offered for a template when
+// the property has no audience (universal) or its audience matches the
+// template's audience. When the template has no audience, every property is
+// offered.
+function filterUserPropertiesByAudience({
+  userProperties,
+  audience,
+}: {
+  userProperties: UserPropertyResource[];
+  audience: string | null;
+}): UserPropertyResource[] {
+  if (audience === null) {
+    return userProperties;
+  }
+  return userProperties.filter(
+    (property) =>
+      property.audience === null ||
+      property.audience === undefined ||
+      property.audience === audience,
+  );
 }
 
 function buildTags({
@@ -399,6 +423,20 @@ export default function TemplateEditor({
     useMessageTemplateUpdateMutation();
   const testTemplateMutation = useTestTemplateMutation();
 
+  // Filter the user properties list once at its source by the edited
+  // template's audience. All consumers of the list within the editor receive
+  // the filtered set.
+  const templateAudience = template?.audience ?? null;
+  const userProperties = useMemo(() => {
+    if (!userPropertiesResult) {
+      return [];
+    }
+    return filterUserPropertiesByAudience({
+      userProperties: userPropertiesResult.userProperties,
+      audience: templateAudience,
+    });
+  }, [userPropertiesResult, templateAudience]);
+
   const duplicateMessageTemplateMutation = useDuplicateResourceMutation({
     onSuccess: (data) => {
       enqueueSnackbar(`Message template duplicated as "${data.name}"!`, {
@@ -417,14 +455,11 @@ export default function TemplateEditor({
       ? workspaceResult.value
       : null;
   const initialUserProperties = useMemo(() => {
-    if (!userPropertiesResult) {
-      return {};
-    }
     return getUserPropertyValues({
       member,
-      userProperties: userPropertiesResult.userProperties,
+      userProperties,
     });
-  }, [userPropertiesResult, member]);
+  }, [userProperties, member]);
 
   const [state, setState] = useImmer<TemplateEditorState>({
     fullscreen: null,
@@ -783,11 +818,7 @@ export default function TemplateEditor({
 
   useEffect(() => {
     let missingUserProperty: string | null = null;
-    const userPropertySet = new Set(
-      userPropertiesResult
-        ? userPropertiesResult.userProperties.map((p) => p.name)
-        : [],
-    );
+    const userPropertySet = new Set(userProperties.map((p) => p.name));
     for (const userProperty in debouncedUserProperties) {
       if (!userPropertySet.has(userProperty)) {
         missingUserProperty = userProperty;
@@ -819,7 +850,7 @@ export default function TemplateEditor({
     setState((draft) => {
       draft.errors.set(USER_PROPERTY_WARNING_KEY, message);
     });
-  }, [errors, setState, debouncedUserProperties, userPropertiesResult]);
+  }, [errors, setState, debouncedUserProperties, userProperties]);
 
   const renderEditorParams: RenderEditorParams | null = useMemo(() => {
     if (!template?.definition) {
@@ -837,6 +868,7 @@ export default function TemplateEditor({
       draft,
       disabled: Boolean(disabled) || !inDraftView,
       inDraftView,
+      userProperties,
       setDraft: (setter) =>
         setState((stateDraft) => {
           let currentDefinition: MessageTemplateResourceDraft | null = null;
@@ -865,6 +897,7 @@ export default function TemplateEditor({
     publisherStatuses?.publisher.type,
     setState,
     template?.definition,
+    userProperties,
     viewDraft,
   ]);
 

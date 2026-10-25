@@ -1,0 +1,1 @@
+ALTER TABLE "UserProperty" ADD COLUMN "audience" text;

@@ -73,6 +73,7 @@ export function toUserPropertyResource(
       definition,
       exampleValue,
       replicateToChildren,
+      audience,
     }) => ({
       workspaceId,
       name,
@@ -80,6 +81,7 @@ export function toUserPropertyResource(
       definition,
       exampleValue: exampleValue ?? undefined,
       replicateToChildren,
+      ...(audience ? { audience } : {}),
       updatedAt: Number(userProperty.updatedAt),
     }),
   );
@@ -100,6 +102,7 @@ export function toSavedUserPropertyResource(
       definitionUpdatedAt,
       status,
       replicateToChildren,
+      audience,
     }) => ({
       workspaceId,
       name,
@@ -107,6 +110,7 @@ export function toSavedUserPropertyResource(
       definition,
       exampleValue: exampleValue ?? undefined,
       replicateToChildren,
+      ...(audience ? { audience } : {}),
       createdAt: createdAt.getTime(),
       updatedAt: updatedAt.getTime(),
       definitionUpdatedAt: definitionUpdatedAt.getTime(),
@@ -724,6 +728,7 @@ export async function upsertUserProperty(
     workspaceId,
     exampleValue,
     replicateToChildren,
+    audience,
   }: UpsertUserPropertyResource = params;
   if (id && !validateUuid(id)) {
     return err({
@@ -754,6 +759,7 @@ export async function upsertUserProperty(
           definition,
           exampleValue,
           replicateToChildren,
+          audience: audience ?? null,
           definitionUpdatedAt,
         },
         target: [dbUserProperty.id],
@@ -764,6 +770,7 @@ export async function upsertUserProperty(
           definitionUpdatedAt,
           exampleValue,
           replicateToChildren,
+          ...(audience !== undefined ? { audience } : {}),
         },
       });
     } else {
@@ -776,12 +783,14 @@ export async function upsertUserProperty(
           definition,
           exampleValue,
           replicateToChildren,
+          audience: audience ?? null,
         },
         set: {
           definition,
           definitionUpdatedAt,
           exampleValue,
           replicateToChildren,
+          ...(audience !== undefined ? { audience } : {}),
         },
         target: [dbUserProperty.workspaceId, dbUserProperty.name],
       });
@@ -797,6 +806,7 @@ export async function upsertUserProperty(
             definitionUpdatedAt,
             exampleValue,
             replicateToChildren,
+            ...(audience !== undefined ? { audience } : {}),
           })
           .where(eq(dbUserProperty.id, id))
           .returning(),
@@ -810,6 +820,7 @@ export async function upsertUserProperty(
             definitionUpdatedAt,
             exampleValue,
             replicateToChildren,
+            ...(audience !== undefined ? { audience } : {}),
           })
           .where(
             and(
@@ -854,6 +865,7 @@ export async function upsertUserProperty(
     definition: userProperty.definition as UserPropertyDefinition,
     exampleValue: userProperty.exampleValue ?? undefined,
     replicateToChildren: userProperty.replicateToChildren,
+    ...(userProperty.audience ? { audience: userProperty.audience } : {}),
     updatedAt: userProperty.updatedAt.getTime(),
     createdAt: userProperty.createdAt.getTime(),
     definitionUpdatedAt: userProperty.definitionUpdatedAt.getTime(),

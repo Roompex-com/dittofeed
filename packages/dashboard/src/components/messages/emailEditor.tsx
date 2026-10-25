@@ -86,17 +86,31 @@ function PreviewIframe({ body }: { body?: string }) {
   );
 }
 
-function EmailOptions({ draft, setDraft, disabled }: RenderEditorParams) {
+function EmailOptions({
+  draft,
+  setDraft,
+  disabled,
+  userProperties: userPropertiesParam,
+}: RenderEditorParams) {
   const [open, setOpen] = React.useState(false);
-  const { userProperties } = useAppStorePick(["userProperties"]);
-  const options = useMemo(() => {
-    if (userProperties.type !== CompletionStatus.Successful) {
-      return [];
+  const { userProperties: userPropertiesRequest } = useAppStorePick([
+    "userProperties",
+  ]);
+  const availableUserProperties = useMemo(() => {
+    if (userPropertiesParam !== undefined) {
+      return userPropertiesParam;
     }
-    return userProperties.value
-      .filter((up) => up.definition.type === UserPropertyDefinitionType.File)
-      .map((up) => up.name);
-  }, [userProperties]);
+    return userPropertiesRequest.type === CompletionStatus.Successful
+      ? userPropertiesRequest.value
+      : [];
+  }, [userPropertiesParam, userPropertiesRequest]);
+  const options = useMemo(
+    () =>
+      availableUserProperties
+        .filter((up) => up.definition.type === UserPropertyDefinitionType.File)
+        .map((up) => up.name),
+    [availableUserProperties],
+  );
 
   const addCustomHeader = () => {
     setDraft((defn) => {
@@ -234,11 +248,9 @@ function EmailOptions({ draft, setDraft, disabled }: RenderEditorParams) {
               renderTags={(value: readonly string[], getTagProps) =>
                 value.map((option: string, index: number) => {
                   const { key, ...tagProps } = getTagProps({ index });
-                  const id =
-                    userProperties.type === CompletionStatus.Successful
-                      ? userProperties.value.find((up) => up.name === option)
-                          ?.id
-                      : undefined;
+                  const id = availableUserProperties.find(
+                    (up) => up.name === option,
+                  )?.id;
 
                   if (!id) {
                     return null;
@@ -495,6 +507,7 @@ export default function EmailEditor({
         setDraft,
         disabled: disabledOverride,
         inDraftView,
+        userProperties,
       }) => {
         if (draft.type !== ChannelType.Email) {
           return null;
@@ -506,6 +519,7 @@ export default function EmailEditor({
               setDraft={setDraft}
               disabled={disabledOverride}
               inDraftView={inDraftView}
+              userProperties={userProperties}
             />
           );
         }

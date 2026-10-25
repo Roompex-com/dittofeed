@@ -26,15 +26,17 @@ export default function LowCodeEmailBodyEditor({
   disabled,
   setDraft,
   inDraftView,
+  userProperties: userPropertiesParam,
 }: LowCodeProps) {
   const content = draft.body;
   const { userProperties: userPropertiesRequest } = useAppStorePick([
     "userProperties",
   ]);
-  const userProperties =
+  const storeUserProperties =
     userPropertiesRequest.type === CompletionStatus.Successful
       ? userPropertiesRequest.value
       : [];
+  const userProperties = userPropertiesParam ?? storeUserProperties;
 
   const state = useEmailo({
     content,

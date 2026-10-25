@@ -81,12 +81,24 @@ import {
 import { useUserPropertyStatusMutation } from "../lib/useUserPropertyStatusMutation";
 import { GreyButton, greyButtonStyle } from "./greyButtonStyle";
 
+// Roompex audience vocab, mirroring the template editor's audience select.
+// Null / unset means the property applies to any audience.
+const AUDIENCE_OPTIONS = [
+  { value: "", label: "Any" },
+  { value: "lead", label: "Lead" },
+  { value: "tenant", label: "Tenant" },
+  { value: "landlord", label: "Landlord" },
+  { value: "vendor", label: "Vendor" },
+  { value: "member", label: "Member" },
+];
+
 export type UserPropertiesAllowedColumn =
   | "name"
   | "status"
   | "lastRecomputed"
   | "updatedAt"
   | "replicateToChildren"
+  | "audience"
   | "actions";
 
 export const DEFAULT_ALLOWED_USER_PROPERTIES_COLUMNS: UserPropertiesAllowedColumn[] =
@@ -96,6 +108,7 @@ export const DEFAULT_ALLOWED_USER_PROPERTIES_COLUMNS: UserPropertiesAllowedColum
     "lastRecomputed",
     "updatedAt",
     "replicateToChildren",
+    "audience",
     "actions",
   ];
 
@@ -344,6 +357,39 @@ function ReplicateToChildrenCell({ row, table }: CellContext<Row, unknown>) {
   );
 }
 
+function AudienceCell({ row, table }: CellContext<Row, unknown>) {
+  const { id, name, audience, disableDelete } = row.original;
+  const setUserPropertyAudience = table.options.meta?.setUserPropertyAudience;
+
+  return (
+    <Tooltip
+      title="Scopes which templates offer this property in the editor"
+      placement="bottom-start"
+    >
+      <TextField
+        select
+        size="small"
+        aria-label={`Audience: ${name}`}
+        value={audience ?? ""}
+        disabled={disableDelete}
+        onChange={(e) =>
+          setUserPropertyAudience?.(
+            id,
+            e.target.value === "" ? null : e.target.value,
+          )
+        }
+        sx={{ minWidth: 120 }}
+      >
+        {AUDIENCE_OPTIONS.map((option) => (
+          <MenuItem key={option.value} value={option.value}>
+            {option.label}
+          </MenuItem>
+        ))}
+      </TextField>
+    </Tooltip>
+  );
+}
+
 export default function UserPropertiesTable({
   sx,
   columnAllowList = DEFAULT_ALLOWED_USER_PROPERTIES_COLUMNS,
@@ -357,6 +403,7 @@ export default function UserPropertiesTable({
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [userPropertyName, setUserPropertyName] = useState("");
+  const [userPropertyAudience, setUserPropertyAudience] = useState("");
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -475,6 +522,31 @@ export default function UserPropertiesTable({
     });
   };
 
+  const audienceMutation = useUpsertUserPropertyMutation({
+    onSuccess: () => {
+      setSnackbarMessage("User property audience updated!");
+      setSnackbarOpen(true);
+    },
+    onError: (error) => {
+      const errorMsg = error.response?.data.message ?? "API Error";
+      setSnackbarMessage(`Failed to update audience: ${errorMsg}`);
+      setSnackbarOpen(true);
+    },
+  });
+
+  const handleSetUserPropertyAudience = (
+    userPropertyId: string,
+    name: string,
+    audience: string | null,
+  ) => {
+    if (audienceMutation.isPending) return;
+    audienceMutation.mutate({
+      id: userPropertyId,
+      name,
+      audience,
+    });
+  };
+
   const handleToggleUserPropertyStatus = (
     userPropertyId: string,
     newStatus: "NotStarted" | "Running" | "Paused",
@@ -504,6 +576,7 @@ export default function UserPropertiesTable({
           type: UserPropertyDefinitionType.Trait,
           path: userPropertyName.trim(),
         },
+        audience: userPropertyAudience === "" ? null : userPropertyAudience,
       });
     }
   };
@@ -511,6 +584,7 @@ export default function UserPropertiesTable({
   const closeDialog = () => {
     setDialogOpen(false);
     setUserPropertyName("");
+    setUserPropertyAudience("");
   };
 
   const columns = useMemo<ColumnDef<Row>[]>(() => {
@@ -547,6 +621,12 @@ export default function UserPropertiesTable({
         header: "Replicate to Companies",
         accessorKey: "replicateToChildren",
         cell: ReplicateToChildrenCell,
+      },
+      audience: {
+        id: "audience",
+        header: "Audience",
+        accessorKey: "audience",
+        cell: AudienceCell,
       },
       actions: {
         id: "actions",
@@ -604,6 +684,22 @@ export default function UserPropertiesTable({
           userPropertyId,
           userProperty.name,
           replicateToChildren,
+        );
+      },
+      setUserPropertyAudience: (
+        userPropertyId: string,
+        audience: string | null,
+      ) => {
+        const userProperty = userPropertiesData.find(
+          (up) => up.id === userPropertyId,
+        );
+        if (!userProperty) {
+          return;
+        }
+        handleSetUserPropertyAudience(
+          userPropertyId,
+          userProperty.name,
+          audience,
         );
       },
     },
@@ -832,6 +928,23 @@ export default function UserPropertiesTable({
               }
             }}
           />
+          <TextField
+            select
+            margin="dense"
+            id="audience"
+            label="Audience"
+            type="text"
+            fullWidth
+            variant="standard"
+            value={userPropertyAudience}
+            onChange={(e) => setUserPropertyAudience(e.target.value)}
+          >
+            {AUDIENCE_OPTIONS.map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeDialog}>Cancel</Button>
@@ -869,6 +982,10 @@ declare module "@tanstack/react-table" {
     setReplicateToChildren?: (
       userPropertyId: string,
       replicateToChildren: boolean,
+    ) => void;
+    setUserPropertyAudience?: (
+      userPropertyId: string,
+      audience: string | null,
     ) => void;
   }
 }
