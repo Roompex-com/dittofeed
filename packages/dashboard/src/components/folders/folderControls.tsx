@@ -13,6 +13,7 @@ import {
   DialogTitle,
   Divider,
   FormControl,
+  FormHelperText,
   InputLabel,
   MenuItem,
   Select,
@@ -37,69 +38,6 @@ import {
 } from "../../lib/useContentFolders";
 
 const NEW_FOLDER_VALUE = "__new_folder__";
-
-/**
- * Folder filter dropdown for resource list toolbars. Offers All folders /
- * Unfiled / each folder, plus a "New folder" affordance that creates a folder
- * of the given resourceType and selects it.
- */
-export function FolderFilterSelect({
-  resourceType,
-  folders,
-  value,
-  onChange,
-}: {
-  resourceType: ContentFolderResourceType;
-  folders: ContentFolder[];
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  const theme = useTheme();
-  const [newFolderDialogOpen, setNewFolderDialogOpen] = useState(false);
-
-  return (
-    <>
-      <FormControl size="small" sx={{ minWidth: theme.spacing(20) }}>
-        <InputLabel id={`folder-filter-label-${resourceType}`}>
-          Folder
-        </InputLabel>
-        <Select
-          labelId={`folder-filter-label-${resourceType}`}
-          label="Folder"
-          value={value}
-          onChange={(e) => {
-            const selected = e.target.value;
-            if (selected === NEW_FOLDER_VALUE) {
-              setNewFolderDialogOpen(true);
-              return;
-            }
-            onChange(selected);
-          }}
-        >
-          <MenuItem value={ALL_FOLDERS_FILTER}>All folders</MenuItem>
-          <MenuItem value={ROOT_FOLDER_FILTER}>Unfiled</MenuItem>
-          {folders.length > 0 && <Divider />}
-          {folders.map((folder) => (
-            <MenuItem key={folder.id} value={folder.id}>
-              {folder.name}
-            </MenuItem>
-          ))}
-          <Divider />
-          <MenuItem value={NEW_FOLDER_VALUE}>
-            <CreateNewFolderIcon fontSize="small" sx={{ mr: 1 }} />
-            New folder…
-          </MenuItem>
-        </Select>
-      </FormControl>
-      <NewFolderDialog
-        open={newFolderDialogOpen}
-        onClose={() => setNewFolderDialogOpen(false)}
-        resourceType={resourceType}
-        onCreated={(folderId) => onChange(folderId)}
-      />
-    </>
-  );
-}
 
 export function NewFolderDialog({
   open,
@@ -168,6 +106,132 @@ export function NewFolderDialog({
         </Button>
       </DialogActions>
     </Dialog>
+  );
+}
+
+/**
+ * Folder filter dropdown for resource list toolbars. Offers All folders /
+ * Unfiled / each folder, plus a "New folder" affordance that creates a folder
+ * of the given resourceType and selects it.
+ */
+export function FolderFilterSelect({
+  resourceType,
+  folders,
+  value,
+  onChange,
+}: {
+  resourceType: ContentFolderResourceType;
+  folders: ContentFolder[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const theme = useTheme();
+  const [newFolderDialogOpen, setNewFolderDialogOpen] = useState(false);
+
+  return (
+    <>
+      <FormControl size="small" sx={{ minWidth: theme.spacing(20) }}>
+        <InputLabel id={`folder-filter-label-${resourceType}`}>
+          Folder
+        </InputLabel>
+        <Select
+          labelId={`folder-filter-label-${resourceType}`}
+          label="Folder"
+          value={value}
+          onChange={(e) => {
+            const selected = e.target.value;
+            if (selected === NEW_FOLDER_VALUE) {
+              setNewFolderDialogOpen(true);
+              return;
+            }
+            onChange(selected);
+          }}
+        >
+          <MenuItem value={ALL_FOLDERS_FILTER}>All folders</MenuItem>
+          <MenuItem value={ROOT_FOLDER_FILTER}>Unfiled</MenuItem>
+          {folders.length > 0 && <Divider />}
+          {folders.map((folder) => (
+            <MenuItem key={folder.id} value={folder.id}>
+              {folder.name}
+            </MenuItem>
+          ))}
+          <Divider />
+          <MenuItem value={NEW_FOLDER_VALUE}>
+            <CreateNewFolderIcon fontSize="small" sx={{ mr: 1 }} />
+            New folder…
+          </MenuItem>
+        </Select>
+      </FormControl>
+      <NewFolderDialog
+        open={newFolderDialogOpen}
+        onClose={() => setNewFolderDialogOpen(false)}
+        resourceType={resourceType}
+        onCreated={(folderId) => onChange(folderId)}
+      />
+    </>
+  );
+}
+
+/**
+ * Required folder selector for resource creation dialogs. Lists folders of
+ * the given resourceType plus a "New folder" affordance; no unfiled option
+ * is offered. The parent form is responsible for blocking creation until a
+ * folder is chosen, passing `error` to surface inline validation.
+ */
+export function RequiredFolderSelect({
+  resourceType,
+  folders,
+  value,
+  onChange,
+  error = false,
+}: {
+  resourceType: ContentFolderResourceType;
+  folders: ContentFolder[];
+  value: string | null;
+  onChange: (folderId: string) => void;
+  error?: boolean;
+}) {
+  const [newFolderDialogOpen, setNewFolderDialogOpen] = useState(false);
+
+  return (
+    <>
+      <FormControl size="small" fullWidth error={error}>
+        <InputLabel id={`required-folder-label-${resourceType}`}>
+          Folder *
+        </InputLabel>
+        <Select
+          labelId={`required-folder-label-${resourceType}`}
+          label="Folder *"
+          value={value ?? ""}
+          onChange={(e) => {
+            const selected = e.target.value;
+            if (selected === NEW_FOLDER_VALUE) {
+              setNewFolderDialogOpen(true);
+              return;
+            }
+            onChange(selected);
+          }}
+        >
+          {folders.map((folder) => (
+            <MenuItem key={folder.id} value={folder.id}>
+              {folder.name}
+            </MenuItem>
+          ))}
+          <Divider />
+          <MenuItem value={NEW_FOLDER_VALUE}>
+            <CreateNewFolderIcon fontSize="small" sx={{ mr: 1 }} />
+            New folder…
+          </MenuItem>
+        </Select>
+        {error && <FormHelperText>Folder is required.</FormHelperText>}
+      </FormControl>
+      <NewFolderDialog
+        open={newFolderDialogOpen}
+        onClose={() => setNewFolderDialogOpen(false)}
+        resourceType={resourceType}
+        onCreated={(folderId) => onChange(folderId)}
+      />
+    </>
   );
 }
 

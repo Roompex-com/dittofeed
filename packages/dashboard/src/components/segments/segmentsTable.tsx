@@ -99,6 +99,7 @@ import {
   FolderFilterSelect,
   FolderGroupHeaderRow,
   MoveToFolderDialog,
+  RequiredFolderSelect,
   useFolderExpansion,
 } from "../folders/folderControls";
 import { GreyButton, greyButtonStyle } from "../greyButtonStyle";
@@ -390,6 +391,8 @@ export function SegmentsTable({
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [segmentName, setSegmentName] = useState("");
+  const [segmentFolderId, setSegmentFolderId] = useState<string | null>(null);
+  const [folderTouched, setFolderTouched] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
   const [sorting, setSorting] = useState<SortingState>([
@@ -574,21 +577,29 @@ export function SegmentsTable({
   });
 
   const handleCreateSegment = () => {
-    if (segmentName.trim() && !createSegmentMutation.isPending) {
-      const newSegmentId = uuid();
-      const definition: SegmentDefinition = DEFAULT_SEGMENT_DEFINITION;
-      createSegmentMutation.mutate({
-        id: newSegmentId,
-        name: segmentName.trim(),
-        definition,
-      });
+    if (!segmentName.trim() || createSegmentMutation.isPending) {
+      return;
     }
+    if (!segmentFolderId) {
+      setFolderTouched(true);
+      return;
+    }
+    const newSegmentId = uuid();
+    const definition: SegmentDefinition = DEFAULT_SEGMENT_DEFINITION;
+    createSegmentMutation.mutate({
+      id: newSegmentId,
+      name: segmentName.trim(),
+      definition,
+      folderId: segmentFolderId,
+    });
   };
 
   // Handle dialog close with reset
   const closeDialog = () => {
     setDialogOpen(false);
     setSegmentName("");
+    setSegmentFolderId(null);
+    setFolderTouched(false);
   };
 
   const columns = useMemo<ColumnDef<Row>[]>(() => {
@@ -986,6 +997,18 @@ export function SegmentsTable({
               }
             }}
           />
+          <Box sx={{ mt: 2 }}>
+            <RequiredFolderSelect
+              resourceType={ContentFolderResourceTypeEnum.Segment}
+              folders={folders}
+              value={segmentFolderId}
+              onChange={(folderId) => {
+                setSegmentFolderId(folderId);
+                setFolderTouched(false);
+              }}
+              error={folderTouched && !segmentFolderId}
+            />
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeDialog}>Cancel</Button>

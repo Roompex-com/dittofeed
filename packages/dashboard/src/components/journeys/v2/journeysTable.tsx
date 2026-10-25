@@ -81,6 +81,7 @@ import {
   FolderFilterSelect,
   FolderGroupHeaderRow,
   MoveToFolderDialog,
+  RequiredFolderSelect,
   useFolderExpansion,
 } from "../../folders/folderControls";
 import { GreyButton, greyButtonStyle } from "../../greyButtonStyle";
@@ -341,6 +342,8 @@ export default function JourneysTable() {
   const nameInputRef = useRef<HTMLInputElement>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [journeyName, setJourneyName] = useState("");
+  const [journeyFolderId, setJourneyFolderId] = useState<string | null>(null);
+  const [folderTouched, setFolderTouched] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
   const [sorting, setSorting] = useState<SortingState>([
@@ -557,35 +560,44 @@ export default function JourneysTable() {
   }
 
   const handleCreateJourney = () => {
-    if (journeyName.trim() && !createJourneyMutation.isPending) {
-      const stateForDraft: JourneyStateForDraft = {
-        journeyNodes: DEFAULT_JOURNEY_NODES,
-        journeyEdges: DEFAULT_EDGES,
-      };
-      const draft = journeyStateToDraft(stateForDraft);
-
-      createJourneyMutation.mutate(
-        { name: journeyName.trim(), draft },
-        {
-          onSuccess: (data) => {
-            setSnackbarMessage("Journey created successfully!");
-            setSnackbarOpen(true);
-            setDialogOpen(false);
-            setJourneyName("");
-            router.push(`/journeys/v2`, { id: data.id });
-          },
-          onError: () => {
-            setSnackbarMessage("Failed to create journey.");
-            setSnackbarOpen(true);
-          },
-        },
-      );
+    if (!journeyName.trim() || createJourneyMutation.isPending) {
+      return;
     }
+    if (!journeyFolderId) {
+      setFolderTouched(true);
+      return;
+    }
+    const stateForDraft: JourneyStateForDraft = {
+      journeyNodes: DEFAULT_JOURNEY_NODES,
+      journeyEdges: DEFAULT_EDGES,
+    };
+    const draft = journeyStateToDraft(stateForDraft);
+
+    createJourneyMutation.mutate(
+      { name: journeyName.trim(), draft, folderId: journeyFolderId },
+      {
+        onSuccess: (data) => {
+          setSnackbarMessage("Journey created successfully!");
+          setSnackbarOpen(true);
+          setDialogOpen(false);
+          setJourneyName("");
+          setJourneyFolderId(null);
+          setFolderTouched(false);
+          router.push(`/journeys/v2`, { id: data.id });
+        },
+        onError: () => {
+          setSnackbarMessage("Failed to create journey.");
+          setSnackbarOpen(true);
+        },
+      },
+    );
   };
 
   const closeDialog = () => {
     setDialogOpen(false);
     setJourneyName("");
+    setJourneyFolderId(null);
+    setFolderTouched(false);
   };
 
   return (
@@ -781,6 +793,18 @@ export default function JourneysTable() {
               }
             }}
           />
+          <Box sx={{ mt: 2 }}>
+            <RequiredFolderSelect
+              resourceType={ContentFolderResourceTypeEnum.Journey}
+              folders={folders}
+              value={journeyFolderId}
+              onChange={(folderId) => {
+                setJourneyFolderId(folderId);
+                setFolderTouched(false);
+              }}
+              error={folderTouched && !journeyFolderId}
+            />
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeDialog}>Cancel</Button>

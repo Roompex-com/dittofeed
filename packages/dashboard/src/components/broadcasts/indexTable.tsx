@@ -85,6 +85,7 @@ import {
   FolderFilterSelect,
   FolderGroupHeaderRow,
   MoveToFolderDialog,
+  RequiredFolderSelect,
   useFolderExpansion,
 } from "../folders/folderControls";
 import { GreyButton, greyButtonStyle } from "../greyButtonStyle";
@@ -378,6 +379,10 @@ export default function BroadcastsTable() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [broadcastName, setBroadcastName] = useState("");
+  const [broadcastFolderId, setBroadcastFolderId] = useState<string | null>(
+    null,
+  );
+  const [folderTouched, setFolderTouched] = useState(false);
   const [selectedChannel, setSelectedChannel] = useState<
     BroadcastV2Config["message"]["type"]
   >(ChannelType.Email);
@@ -619,53 +624,59 @@ export default function BroadcastsTable() {
   }
 
   const handleCreateBroadcast = () => {
-    if (broadcastName.trim() && !createBroadcastMutation.isPending) {
-      let broadcastConfigMessage: BroadcastV2Config["message"];
-      switch (selectedChannel) {
-        case ChannelType.Email:
-          broadcastConfigMessage = {
-            type: ChannelType.Email,
-          };
-          break;
-        case ChannelType.Sms:
-          broadcastConfigMessage = {
-            type: ChannelType.Sms,
-          };
-          break;
-        case ChannelType.Webhook:
-          broadcastConfigMessage = {
-            type: ChannelType.Webhook,
-          };
-          break;
-        default:
-          // Should not happen with the ToggleButtonGroup
-          return;
-      }
-      const newBroadcastData = {
-        name: broadcastName.trim(),
-        config: {
-          type: "V2" as const, // Explicitly set type to 'V2'
-          message: broadcastConfigMessage,
-          rateLimit: 10,
-          batchSize: 100,
-        } satisfies BroadcastV2Config,
-      };
-      createBroadcastMutation.mutate(newBroadcastData, {
-        onSuccess: (data) => {
-          // queryClient.invalidateQueries({ queryKey: ["broadcasts"] }); // Handled by the hook
-          setSnackbarMessage("Broadcast created successfully!");
-          setSnackbarOpen(true);
-          setDialogOpen(false);
-          setBroadcastName("");
-          universalRouter.push(`/broadcasts/v2`, { id: data.id });
-        },
-        onError: (_error) => {
-          // console.error("Failed to create broadcast:", error);
-          setSnackbarMessage("Failed to create broadcast.");
-          setSnackbarOpen(true);
-        },
-      });
+    if (!broadcastName.trim() || createBroadcastMutation.isPending) {
+      return;
     }
+    if (!broadcastFolderId) {
+      setFolderTouched(true);
+      return;
+    }
+    let broadcastConfigMessage: BroadcastV2Config["message"];
+    switch (selectedChannel) {
+      case ChannelType.Email:
+        broadcastConfigMessage = {
+          type: ChannelType.Email,
+        };
+        break;
+      case ChannelType.Sms:
+        broadcastConfigMessage = {
+          type: ChannelType.Sms,
+        };
+        break;
+      case ChannelType.Webhook:
+        broadcastConfigMessage = {
+          type: ChannelType.Webhook,
+        };
+        break;
+      default:
+        // Should not happen with the ToggleButtonGroup
+        return;
+    }
+    const newBroadcastData = {
+      name: broadcastName.trim(),
+      folderId: broadcastFolderId,
+      config: {
+        type: "V2" as const, // Explicitly set type to 'V2'
+        message: broadcastConfigMessage,
+        rateLimit: 10,
+        batchSize: 100,
+      } satisfies BroadcastV2Config,
+    };
+    createBroadcastMutation.mutate(newBroadcastData, {
+      onSuccess: (data) => {
+        // queryClient.invalidateQueries({ queryKey: ["broadcasts"] }); // Handled by the hook
+        setSnackbarMessage("Broadcast created successfully!");
+        setSnackbarOpen(true);
+        setDialogOpen(false);
+        setBroadcastName("");
+        universalRouter.push(`/broadcasts/v2`, { id: data.id });
+      },
+      onError: (_error) => {
+        // console.error("Failed to create broadcast:", error);
+        setSnackbarMessage("Failed to create broadcast.");
+        setSnackbarOpen(true);
+      },
+    });
   };
 
   // Handle channel type selection
@@ -682,6 +693,8 @@ export default function BroadcastsTable() {
   const closeDialog = () => {
     setDialogOpen(false);
     setBroadcastName("");
+    setBroadcastFolderId(null);
+    setFolderTouched(false);
     setSelectedChannel(ChannelType.Email);
   };
 
@@ -929,6 +942,18 @@ export default function BroadcastsTable() {
               Webhook
             </ToggleButton>
           </ToggleButtonGroup>
+          <Box sx={{ mt: 2 }}>
+            <RequiredFolderSelect
+              resourceType={ContentFolderResourceTypeEnum.Broadcast}
+              folders={folders}
+              value={broadcastFolderId}
+              onChange={(folderId) => {
+                setBroadcastFolderId(folderId);
+                setFolderTouched(false);
+              }}
+              error={folderTouched && !broadcastFolderId}
+            />
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeDialog}>Cancel</Button>

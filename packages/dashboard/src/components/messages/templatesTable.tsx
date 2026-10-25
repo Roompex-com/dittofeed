@@ -96,6 +96,7 @@ import {
   FolderFilterSelect,
   FolderGroupHeaderRow,
   MoveToFolderDialog,
+  RequiredFolderSelect,
   useFolderExpansion,
 } from "../folders/folderControls";
 import { GreyButton, greyButtonStyle } from "../greyButtonStyle";
@@ -405,6 +406,10 @@ export default function TemplatesTable({
   // Dialog state for creating new templates
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState("");
+  const [newTemplateFolderId, setNewTemplateFolderId] = useState<string | null>(
+    null,
+  );
+  const [folderTouched, setFolderTouched] = useState(false);
   const [selectedChannel, setSelectedChannel] = useState<ChannelType>(
     ChannelType.Email,
   );
@@ -540,6 +545,8 @@ export default function TemplatesTable({
   const handleCloseDialog = () => {
     setDialogOpen(false);
     setNewTemplateName("");
+    setNewTemplateFolderId(null);
+    setFolderTouched(false);
     setSelectedChannel(ChannelType.Email);
     setEmailContentType(EmailContentsType.LowCode);
   };
@@ -558,6 +565,10 @@ export default function TemplatesTable({
   // Handle template creation
   const handleCreateTemplate = () => {
     if (!newTemplateName.trim() || updateTemplateMutation.isPending) {
+      return;
+    }
+    if (!newTemplateFolderId) {
+      setFolderTouched(true);
       return;
     }
 
@@ -585,6 +596,7 @@ export default function TemplatesTable({
       id: newTemplateId,
       name: newTemplateName.trim(),
       definition,
+      folderId: newTemplateFolderId,
       resourceType: ResourceTypeEnum.Declarative,
     };
 
@@ -1077,6 +1089,18 @@ export default function TemplatesTable({
                 </>
               );
             })()}
+          <Box sx={{ mt: 2 }}>
+            <RequiredFolderSelect
+              resourceType={ContentFolderResourceTypeEnum.Template}
+              folders={folders}
+              value={newTemplateFolderId}
+              onChange={(folderId) => {
+                setNewTemplateFolderId(folderId);
+                setFolderTouched(false);
+              }}
+              error={folderTouched && !newTemplateFolderId}
+            />
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog}>Cancel</Button>

@@ -60,10 +60,12 @@ import {
   SearchDeliveriesRequestSortByEnum,
   SearchDeliveriesResponse,
   SearchDeliveriesResponseItem,
+  SmsProviderType,
   SortDirection,
   SortDirectionEnum,
 } from "isomorphic-lib/src/types";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import qs from "qs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { omit } from "remeda";
@@ -110,6 +112,21 @@ function humanizeChannel(channel: ChannelType): string {
       return "Webhook";
     case ChannelType.MobilePush:
       return "Mobile Push";
+  }
+}
+
+function humanizeSmsProviderType(provider: SmsProviderType): string {
+  switch (provider) {
+    case SmsProviderType.Twilio:
+      return "Twilio";
+    case SmsProviderType.SignalWire:
+      return "SignalWire";
+    case SmsProviderType.Quo:
+      return "Quo";
+    case SmsProviderType.Test:
+      return "Test";
+    default:
+      return provider;
   }
 }
 
@@ -227,10 +244,12 @@ function LinkCell({
   row,
   column,
   renderUrl,
+  absoluteUrl,
 }: {
   row: Row<Delivery>;
   column: ColumnDef<Delivery>;
   renderUrl?: RenderUrl;
+  absoluteUrl?: boolean;
 }) {
   const value = column.id ? (row.getValue(column.id) as string) : null;
   const uri = useMemo(() => {
@@ -260,7 +279,12 @@ function LinkCell({
         >
           {value}
         </Box>
-        {uri && (
+        {uri && absoluteUrl && (
+          <IconButton component="a" href={uri} target="_blank">
+            <OpenInNew />
+          </IconButton>
+        )}
+        {uri && !absoluteUrl && (
           <IconButton LinkComponent={Link} href={uri} target="_blank">
             <OpenInNew />
           </IconButton>
@@ -270,7 +294,7 @@ function LinkCell({
   );
 }
 
-function linkCellFactory(renderUrl?: RenderUrl) {
+function linkCellFactory(renderUrl?: RenderUrl, absoluteUrl?: boolean) {
   return function linkCell({
     row,
     column,
@@ -278,7 +302,14 @@ function linkCellFactory(renderUrl?: RenderUrl) {
     row: Row<Delivery>;
     column: ColumnDef<Delivery>;
   }) {
-    return <LinkCell row={row} column={column} renderUrl={renderUrl} />;
+    return (
+      <LinkCell
+        row={row}
+        column={column}
+        renderUrl={renderUrl}
+        absoluteUrl={absoluteUrl}
+      />
+    );
   };
 }
 
@@ -330,7 +361,7 @@ interface EmailDelivery extends BaseDelivery {
 
 interface SmsDelivery extends BaseDelivery {
   channel: typeof ChannelType.Sms;
-  from?: undefined;
+  from?: string;
   to: string;
   subject?: undefined;
   replyTo?: undefined;
@@ -463,7 +494,12 @@ function renderPreviewCellFactory(setState: SetDeliveriesBodyState) {
 
 function UserIdCell({ value }: { value: string }) {
   const [showCopied, setShowCopied] = useState(false);
-  const uri = `/users/${value}`;
+  const router = useRouter();
+  // Chrome-free /embed pages must not link to user profiles; the link is
+  // only rendered in the full dashboard. Detection follows the
+  // universalRouter pattern in authModeProvider (/embed route prefix).
+  const isEmbedded = router.pathname.startsWith("/embed");
+  const uri = `/dashboard/users/${value}`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(value);
@@ -496,11 +532,13 @@ function UserIdCell({ value }: { value: string }) {
             <ContentCopyIcon fontSize="small" />
           </IconButton>
         </Tooltip>
-        <Tooltip title="View User Profile">
-          <IconButton size="small" component={Link} href={uri} target="_blank">
-            <OpenInNew fontSize="small" />
-          </IconButton>
-        </Tooltip>
+        {!isEmbedded && (
+          <Tooltip title="View User Profile">
+            <IconButton size="small" component="a" href={uri} target="_blank">
+              <OpenInNew fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
       </Stack>
       <Snackbar
         open={showCopied}
@@ -574,6 +612,10 @@ export function useDeliveryBodyState({
   limit = 10,
 }: DeliveriesBodyHookProps) {
   const { workspace } = useAppStorePick(["workspace"]);
+  const { smsProviders, defaultSmsProvider } = useAppStorePick([
+    "smsProviders",
+    "defaultSmsProvider",
+  ]);
   const baseApiUrl = useBaseApiUrl();
   const authHeaders = useAuthHeaders();
   const { data: resources } = useResourcesQuery({
@@ -586,6 +628,24 @@ export function useDeliveryBodyState({
     previewMessageId: null,
     cursor: null,
   });
+
+  // SMS deliveries do not carry a per-message from in the delivery data.
+  // Fall back to the workspace's default SMS provider, resolved with the
+  // same lookup the settings UI uses (defaultSmsProvider -> smsProviders).
+  // The from phone number itself is stored as an encrypted secret with no
+  // read API, so the provider's name is shown instead.
+  const defaultSmsFrom = useMemo(() => {
+    if (!defaultSmsProvider) {
+      return undefined;
+    }
+    const provider = smsProviders.find(
+      (candidate) => candidate.id === defaultSmsProvider.smsProviderId,
+    );
+    if (!provider?.type) {
+      return undefined;
+    }
+    return humanizeSmsProviderType(provider.type);
+  }, [smsProviders, defaultSmsProvider]);
 
   // Reset pagination when date range or sort changes
   useEffect(() => {
@@ -797,6 +857,8 @@ export function useDeliveryBodyState({
             body: variant.body,
             snippet: variant.body,
             to: variant.to,
+            from:
+              defaultSmsFrom ?? humanizeSmsProviderType(variant.provider.type),
           };
           break;
         case ChannelType.Webhook:
@@ -815,7 +877,7 @@ export function useDeliveryBodyState({
       }
       return delivery;
     });
-  }, [query, workspace, resources, broadcasts]);
+  }, [query, workspace, resources, broadcasts, defaultSmsFrom]);
 
   const onNextPage = useCallback(() => {
     setState((draft) => {
@@ -898,12 +960,15 @@ export function DeliveriesBody({
           }
           queryParams[BroadcastQueryKeys.STEP] = BroadcastStepKeys.CONTENT;
         }
-        return renderRowUrl({
+        const uri = renderRowUrl({
           uriTemplate,
           delivery,
           queryParams,
         });
-      }),
+        // The template link always targets the full dashboard, never the
+        // chrome-free /embed routes.
+        return uri === null ? null : `/dashboard${uri}`;
+      }, true),
     [workspace, templateUriTemplate, broadcastUriTemplate],
   );
   const originLinkCell = useMemo(
