@@ -73,7 +73,11 @@ import uriTemplates from "uri-templates";
 import { Updater, useImmer } from "use-immer";
 
 import { useAppStorePick } from "../../lib/appStore";
-import { useAuthHeaders, useBaseApiUrl } from "../../lib/authModeProvider";
+import {
+  useAuthHeaders,
+  useBaseApiUrl,
+  useUniversalRouter,
+} from "../../lib/authModeProvider";
 import { expandCascadingMessageFilters } from "../../lib/cascadingMessageFilters";
 import { useBroadcastsQuery } from "../../lib/useBroadcastsQuery";
 import { useResourcesQuery } from "../../lib/useResourcesQuery";
@@ -244,12 +248,10 @@ function LinkCell({
   row,
   column,
   renderUrl,
-  absoluteUrl,
 }: {
   row: Row<Delivery>;
   column: ColumnDef<Delivery>;
   renderUrl?: RenderUrl;
-  absoluteUrl?: boolean;
 }) {
   const value = column.id ? (row.getValue(column.id) as string) : null;
   const uri = useMemo(() => {
@@ -279,12 +281,7 @@ function LinkCell({
         >
           {value}
         </Box>
-        {uri && absoluteUrl && (
-          <IconButton component="a" href={uri} target="_blank">
-            <OpenInNew />
-          </IconButton>
-        )}
-        {uri && !absoluteUrl && (
+        {uri && (
           <IconButton LinkComponent={Link} href={uri} target="_blank">
             <OpenInNew />
           </IconButton>
@@ -294,7 +291,7 @@ function LinkCell({
   );
 }
 
-function linkCellFactory(renderUrl?: RenderUrl, absoluteUrl?: boolean) {
+function linkCellFactory(renderUrl?: RenderUrl) {
   return function linkCell({
     row,
     column,
@@ -302,14 +299,99 @@ function linkCellFactory(renderUrl?: RenderUrl, absoluteUrl?: boolean) {
     row: Row<Delivery>;
     column: ColumnDef<Delivery>;
   }) {
-    return (
-      <LinkCell
-        row={row}
-        column={column}
-        renderUrl={renderUrl}
-        absoluteUrl={absoluteUrl}
-      />
-    );
+    return <LinkCell row={row} column={column} renderUrl={renderUrl} />;
+  };
+}
+
+interface TemplateLinkUrl {
+  path: string;
+  queryParams: Record<string, string>;
+}
+
+type RenderTemplateUrl = (row: Delivery) => TemplateLinkUrl | null;
+
+function TemplateLinkCell({
+  row,
+  column,
+  renderUrl,
+}: {
+  row: Row<Delivery>;
+  column: ColumnDef<Delivery>;
+  renderUrl?: RenderTemplateUrl;
+}) {
+  const value = column.id ? (row.getValue(column.id) as string) : null;
+  const link = useMemo(() => {
+    return renderUrl ? renderUrl(row.original) : null;
+  }, [renderUrl, row.original]);
+  const router = useRouter();
+  // On chrome-free /embed pages the template link navigates in-frame to
+  // the embedded template editor via the universal router (which prefixes
+  // /embed) instead of opening the full dashboard.
+  const isEmbedded = router.pathname.startsWith("/embed");
+  const universalRouter = useUniversalRouter();
+
+  const href = useMemo(() => {
+    if (!link) {
+      return null;
+    }
+    const hasQueryParams = Object.keys(link.queryParams).length > 0;
+    if (isEmbedded) {
+      return universalRouter.mapUrl(link.path, link.queryParams, {
+        excludeQueryParams: !hasQueryParams,
+      });
+    }
+    return hasQueryParams
+      ? `${link.path}?${qs.stringify(link.queryParams)}`
+      : link.path;
+  }, [link, isEmbedded, universalRouter]);
+
+  if (!value) {
+    return null;
+  }
+  return (
+    <Tooltip title={value} placement="bottom-start">
+      <Stack
+        direction="row"
+        spacing={1}
+        alignItems="center"
+        sx={{
+          maxWidth: "200px",
+        }}
+      >
+        <Box
+          sx={{
+            maxWidth: "calc(100% - 32px);",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+          }}
+        >
+          {value}
+        </Box>
+        {href && isEmbedded && (
+          <IconButton component={Link} href={href}>
+            <OpenInNew />
+          </IconButton>
+        )}
+        {href && !isEmbedded && (
+          <IconButton LinkComponent={Link} href={href} target="_blank">
+            <OpenInNew />
+          </IconButton>
+        )}
+      </Stack>
+    </Tooltip>
+  );
+}
+
+function templateLinkCellFactory(renderUrl?: RenderTemplateUrl) {
+  return function templateCell({
+    row,
+    column,
+  }: {
+    row: Row<Delivery>;
+    column: ColumnDef<Delivery>;
+  }) {
+    return <TemplateLinkCell row={row} column={column} renderUrl={renderUrl} />;
   };
 }
 
@@ -612,8 +694,11 @@ export function useDeliveryBodyState({
   limit = 10,
 }: DeliveriesBodyHookProps) {
   const { workspace } = useAppStorePick(["workspace"]);
-  const { smsProviders, defaultSmsProvider, smsFromNumber } =
-    useAppStorePick(["smsProviders", "defaultSmsProvider", "smsFromNumber"]);
+  const { smsProviders, defaultSmsProvider, smsFromNumber } = useAppStorePick([
+    "smsProviders",
+    "defaultSmsProvider",
+    "smsFromNumber",
+  ]);
   const baseApiUrl = useBaseApiUrl();
   const authHeaders = useAuthHeaders();
   const { data: resources } = useResourcesQuery({
@@ -941,7 +1026,7 @@ export function DeliveriesBody({
   );
   const templateLinkCell = useMemo(
     () =>
-      linkCellFactory((delivery) => {
+      templateLinkCellFactory((delivery) => {
         const isInternalTemplate =
           delivery.broadcastId &&
           workspace.type === CompletionStatus.Successful &&
@@ -952,7 +1037,7 @@ export function DeliveriesBody({
           });
 
         let uriTemplate: string | undefined;
-        const queryParams: QueryParams = {};
+        const queryParams: Record<string, string> = {};
         if (delivery.originType !== "broadcastV2" || !isInternalTemplate) {
           uriTemplate = templateUriTemplate;
         } else {
@@ -962,15 +1047,9 @@ export function DeliveriesBody({
           }
           queryParams[BroadcastQueryKeys.STEP] = BroadcastStepKeys.CONTENT;
         }
-        const uri = renderRowUrl({
-          uriTemplate,
-          delivery,
-          queryParams,
-        });
-        // The template link always targets the full dashboard, never the
-        // chrome-free /embed routes.
-        return uri === null ? null : `/dashboard${uri}`;
-      }, true),
+        const path = renderRowUrl({ uriTemplate, delivery });
+        return path === null ? null : { path, queryParams };
+      }),
     [workspace, templateUriTemplate, broadcastUriTemplate],
   );
   const originLinkCell = useMemo(
