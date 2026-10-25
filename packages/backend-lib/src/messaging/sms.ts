@@ -82,6 +82,39 @@ export async function upsertSmsProvider({
   });
 }
 
+export async function getWorkspaceSmsFromNumber({
+  workspaceId,
+}: {
+  workspaceId: string;
+}): Promise<string | null> {
+  const defaultProvider = await db().query.defaultSmsProvider.findFirst({
+    where: eq(dbDefaultSmsProvider.workspaceId, workspaceId),
+    with: {
+      smsProvider: {
+        with: {
+          secret: true,
+        },
+      },
+    },
+  });
+  const secret = defaultProvider?.smsProvider?.secret;
+  if (!secret) {
+    return null;
+  }
+  const { configValue, value } = secret;
+  if (
+    typeof configValue === "object" &&
+    configValue !== null &&
+    "from" in configValue
+  ) {
+    const from = (configValue as { from: unknown }).from;
+    if (typeof from === "string" && from.length > 0) {
+      return from;
+    }
+  }
+  return value && value.length > 0 ? value : null;
+}
+
 export async function getOrCreateSmsProviders({
   workspaceId,
 }: {

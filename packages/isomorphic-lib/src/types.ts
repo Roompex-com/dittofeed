@@ -3926,6 +3926,18 @@ export type DefaultSmsProviderResource = Static<
   typeof DefaultSmsProviderResource
 >;
 
+export const GetSmsFromNumberRequest = Type.Object({
+  workspaceId: Type.String(),
+});
+
+export type GetSmsFromNumberRequest = Static<typeof GetSmsFromNumberRequest>;
+
+export const GetSmsFromNumberResponse = Type.Object({
+  from: Type.Union([Type.String(), Type.Null()]),
+});
+
+export type GetSmsFromNumberResponse = Static<typeof GetSmsFromNumberResponse>;
+
 export const MessageTemplateTestErrorResponse = Type.Object({});
 
 export const SmsTwilioSuccess = Type.Object({

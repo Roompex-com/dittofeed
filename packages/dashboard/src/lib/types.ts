@@ -158,6 +158,7 @@ export type AppState = {
   emailProviders: PersistedEmailProvider[];
   defaultSmsProvider: DefaultSmsProviderResource | null;
   smsProviders: PersistedSmsProvider[];
+  smsFromNumber: string | null;
   dataSourceConfigurations: RequestStatus<
     DataSourceConfigurationResource[],
     Error

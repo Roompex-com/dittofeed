@@ -5,7 +5,10 @@ import { getOrCreateWriteKey, getWriteKeys } from "backend-lib/src/auth";
 import { db, upsert } from "backend-lib/src/db";
 import * as schema from "backend-lib/src/db/schema";
 import { upsertEmailProvider } from "backend-lib/src/messaging/email";
-import { upsertSmsProvider } from "backend-lib/src/messaging/sms";
+import {
+  getWorkspaceSmsFromNumber,
+  upsertSmsProvider,
+} from "backend-lib/src/messaging/sms";
 import { and, eq } from "drizzle-orm";
 import { FastifyInstance } from "fastify";
 import { unwrap } from "isomorphic-lib/src/resultHandling/resultUtils";
@@ -18,6 +21,8 @@ import {
   DeleteDataSourceConfigurationRequest,
   DeleteWriteKeyResource,
   EmptyResponse,
+  GetSmsFromNumberRequest,
+  GetSmsFromNumberResponse,
   ListDataSourceConfigurationRequest,
   ListDataSourceConfigurationResponse,
   ListWriteKeyRequest,
@@ -170,6 +175,27 @@ export default async function settingsController(fastify: FastifyInstance) {
       });
 
       return reply.status(201).send();
+    },
+  );
+
+  fastify.withTypeProvider<TypeBoxTypeProvider>().get(
+    "/sms-from-number",
+    {
+      schema: {
+        description:
+          "Get the from number of the workspace's default SMS provider. The from number is not sensitive, it appears on every outbound SMS.",
+        tags: ["Settings"],
+        querystring: GetSmsFromNumberRequest,
+        response: {
+          200: GetSmsFromNumberResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      const from = await getWorkspaceSmsFromNumber({
+        workspaceId: request.query.workspaceId,
+      });
+      return reply.status(200).send({ from });
     },
   );
 

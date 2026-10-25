@@ -612,10 +612,8 @@ export function useDeliveryBodyState({
   limit = 10,
 }: DeliveriesBodyHookProps) {
   const { workspace } = useAppStorePick(["workspace"]);
-  const { smsProviders, defaultSmsProvider } = useAppStorePick([
-    "smsProviders",
-    "defaultSmsProvider",
-  ]);
+  const { smsProviders, defaultSmsProvider, smsFromNumber } =
+    useAppStorePick(["smsProviders", "defaultSmsProvider", "smsFromNumber"]);
   const baseApiUrl = useBaseApiUrl();
   const authHeaders = useAuthHeaders();
   const { data: resources } = useResourcesQuery({
@@ -630,11 +628,15 @@ export function useDeliveryBodyState({
   });
 
   // SMS deliveries do not carry a per-message from in the delivery data.
-  // Fall back to the workspace's default SMS provider, resolved with the
-  // same lookup the settings UI uses (defaultSmsProvider -> smsProviders).
-  // The from phone number itself is stored as an encrypted secret with no
-  // read API, so the provider's name is shown instead.
+  // Prefer the workspace's configured SMS from-number, exposed by
+  // /api/settings/sms-from-number and seeded server-side (it is not
+  // sensitive, it appears on every outbound SMS). Otherwise fall back to
+  // the default SMS provider name, resolved with the same lookup the
+  // settings UI uses (defaultSmsProvider -> smsProviders).
   const defaultSmsFrom = useMemo(() => {
+    if (smsFromNumber) {
+      return smsFromNumber;
+    }
     if (!defaultSmsProvider) {
       return undefined;
     }
@@ -645,7 +647,7 @@ export function useDeliveryBodyState({
       return undefined;
     }
     return humanizeSmsProviderType(provider.type);
-  }, [smsProviders, defaultSmsProvider]);
+  }, [smsFromNumber, smsProviders, defaultSmsProvider]);
 
   // Reset pagination when date range or sort changes
   useEffect(() => {

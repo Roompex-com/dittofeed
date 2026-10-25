@@ -1,7 +1,7 @@
 import { Box } from "@mui/material";
 import { db } from "backend-lib/src/db";
 import * as schema from "backend-lib/src/db/schema";
-import { getOrCreateSmsProviders } from "backend-lib/src/messaging/sms";
+import { getOrCreateSmsProviders, getWorkspaceSmsFromNumber } from "backend-lib/src/messaging/sms";
 import { eq } from "drizzle-orm";
 import { GetServerSideProps } from "next";
 
@@ -18,12 +18,15 @@ export const getServerSideProps: GetServerSideProps<PropsWithInitialState> =
   requestContext(async (_ctx, dfContext) => {
     const workspaceId = dfContext.workspace.id;
     // Same default SMS provider lookup the settings UI uses, seeded so the
-    // deliveries table can fall back on it for the SMS From column.
-    const [smsProviders, defaultSmsProvider] = await Promise.all([
+    // deliveries table can fall back on it for the SMS From column. The
+    // provider's from number is resolved the same way and shown when
+    // configured.
+    const [smsProviders, defaultSmsProvider, smsFromNumber] = await Promise.all([
       getOrCreateSmsProviders({ workspaceId }),
       db().query.defaultSmsProvider.findFirst({
         where: eq(schema.defaultSmsProvider.workspaceId, workspaceId),
       }),
+      getWorkspaceSmsFromNumber({ workspaceId }),
     ]);
 
     return {
@@ -33,6 +36,7 @@ export const getServerSideProps: GetServerSideProps<PropsWithInitialState> =
         serverInitialState: {
           smsProviders,
           defaultSmsProvider,
+          smsFromNumber,
         },
       }),
     };

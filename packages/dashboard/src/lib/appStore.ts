@@ -41,6 +41,7 @@ export const initializeStore = (preloadedState: PreloadedState = {}) =>
         emailProviders: [],
         defaultSmsProvider: null,
         smsProviders: [],
+        smsFromNumber: null,
         traits: [],
         properties: {},
         getTraitsRequest: {
