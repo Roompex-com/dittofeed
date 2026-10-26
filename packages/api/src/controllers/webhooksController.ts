@@ -139,10 +139,20 @@ export default async function webhookController(fastify: FastifyInstance) {
       }
       // Optional RSA-SHA256 signature verification when a public key is
       // configured. The signature is computed by Postal over the raw body.
-      const pubKey = process.env.POSTAL_WEBHOOK_PUBLIC_KEY;
-      if (pubKey) {
+      // Accepts the key as PEM or as bare base64 SPKI (e.g. copied from the
+      // return-path DKIM record via `postal default-dkim-record`), since
+      // Node's crypto rejects bare base64 DER.
+      const rawPublicKey = process.env.POSTAL_WEBHOOK_PUBLIC_KEY?.trim();
+      if (rawPublicKey) {
+        const pubKey = /^-----BEGIN/.test(rawPublicKey)
+          ? rawPublicKey
+          : [
+              "-----BEGIN PUBLIC KEY-----",
+              ...rawPublicKey.match(/.{1,64}/g) ?? [],
+              "-----END PUBLIC KEY-----",
+            ].join("\n");
         const signature = request.headers["x-postal-signature-256"];
-        if (typeof signature !== "string") {
+        if (typeof signature !== "string" || !signature.length) {
           return reply.status(401).send({ message: "Invalid signature" });
         }
         const rawBody = request.rawBody ?? JSON.stringify(request.body);
