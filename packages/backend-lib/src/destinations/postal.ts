@@ -99,7 +99,15 @@ export async function sendMailPostal({
             }
           : {}),
       },
-      { headers: { "X-Server-API-Key": apiKey }, timeout: 30_000 },
+      {
+        headers: {
+          "X-Server-API-Key": apiKey,
+          // Explicit: without this, Rails does not parse the JSON body and
+          // the send fails with NoRecipients (verified against Postal 3.3.7).
+          "Content-Type": "application/json",
+        },
+        timeout: 30_000,
+      },
     );
     const responseBody = response.data;
     if (responseBody.status !== "success" || !responseBody.data) {
