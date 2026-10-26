@@ -1068,6 +1068,57 @@ function SmtpConfig() {
   );
 }
 
+const POSTAL_SECRET_FIELDS: {
+  helperText: string;
+  label: string;
+  key: "baseUrl" | "apiKey";
+}[] = [
+  {
+    key: "baseUrl",
+    label: "Postal Base URL",
+    helperText: "Base URL of the Postal server, e.g. https://mail.example.com.",
+  },
+  {
+    key: "apiKey",
+    label: "Postal API Key",
+    helperText: "API key, used internally to send emails via Postal.",
+  },
+];
+
+function PostalConfig() {
+  const secretAvailability = useSecretAvailability();
+  const fields: SecretField[] = POSTAL_SECRET_FIELDS.map((field) => ({
+    id: `postal-${field.key}`,
+    type: "secret",
+    fieldProps: {
+      name: SecretNames.Postal,
+      secretKey: field.key,
+      label: field.label,
+      helperText: field.helperText,
+      type: EmailProviderType.Postal,
+      saved: isSecretSaved(SecretNames.Postal, field.key, secretAvailability),
+    },
+  }));
+
+  return (
+    <Fields
+      sections={[
+        {
+          id: "postal-section",
+          fieldGroups: [
+            {
+              id: "postal-fields",
+              name: "Postal",
+              description: "Send emails with a Postal server.",
+              fields,
+            },
+          ],
+        },
+      ]}
+    />
+  );
+}
+
 function DefaultEmailConfig() {
   const {
     emailProviders,
@@ -1222,6 +1273,7 @@ function EmailChannelConfig() {
       <PostMarkConfig />
       <MailChimpConfig />
       <SmtpConfig />
+      <PostalConfig />
     </>
   );
 }

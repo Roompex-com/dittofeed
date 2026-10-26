@@ -32,6 +32,7 @@ import {
   defaultSmsProvider as dbDefaultSmsProvider,
   emailProvider as dbEmailProvider,
   messageTemplate as dbMessageTemplate,
+  postalMessageMappings as dbPostalMessageMappings,
   secret as dbSecret,
   smsProvider as dbSmsProvider,
   subscriptionGroup as dbSubscriptionGroup,
@@ -42,6 +43,7 @@ import {
   SesMailData,
 } from "./destinations/amazonses";
 import { sendMail as sendMailMailchimp } from "./destinations/mailchimp";
+import { sendMailPostal } from "./destinations/postal";
 import { sendMail as sendMailPostMark } from "./destinations/postmark";
 import { sendSms as sendSmsQuo } from "./destinations/quo";
 import {
@@ -1175,6 +1177,92 @@ export async function sendEmail({
           provider: {
             type: EmailProviderType.Smtp,
             messageId: result.value.messageId,
+          },
+        },
+      });
+    }
+    case EmailProviderType.Postal: {
+      const { apiKey, baseUrl } = emailProvider;
+      if (!apiKey || !baseUrl) {
+        return err({
+          type: InternalEventType.BadWorkspaceConfiguration,
+          variant: {
+            type: BadWorkspaceConfigurationType.MessageServiceProviderMisconfigured,
+            message: `missing apiKey or baseUrl in postal config`,
+          },
+        });
+      }
+      const postalAttachments =
+        messageTags &&
+        attachments?.map((attachment) => ({
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          data: attachment.data,
+        }));
+
+      const result = await sendMailPostal({
+        apiKey,
+        baseUrl,
+        from,
+        name: emailName,
+        to,
+        subject,
+        replyTo,
+        body,
+        headers,
+        cc,
+        bcc,
+        attachments: postalAttachments ?? undefined,
+      });
+      if (result.isErr()) {
+        return err({
+          type: InternalEventType.MessageFailure,
+          variant: {
+            type: ChannelType.Email,
+            provider: {
+              type: EmailProviderType.Postal,
+              message: result.error.message,
+              ...(result.error.status ? { status: result.error.status } : {}),
+            },
+          },
+        });
+      }
+      if (messageTags && result.value.postalMessageIds.length) {
+        await db()
+          .insert(dbPostalMessageMappings)
+          .values(
+            result.value.postalMessageIds.map((postalMessageId) => ({
+              postalMessageId,
+              workspaceId,
+              userId: messageTags.userId ?? userId,
+              messageId: messageTags.messageId,
+              templateId,
+              journeyId: messageTags.journeyId ?? null,
+              nodeId: messageTags.nodeId ?? null,
+              broadcastId: messageTags.broadcastId ?? null,
+              runId: messageTags.runId ?? null,
+            })),
+          )
+          .onConflictDoNothing();
+      }
+      return ok({
+        type: InternalEventType.MessageSent,
+        variant: {
+          type: ChannelType.Email,
+          from,
+          body,
+          to,
+          subject,
+          headers,
+          replyTo,
+          cc: unsplitCc,
+          bcc: unsplitBcc,
+          name: emailName,
+          attachments: attachmentsSent,
+          provider: {
+            type: EmailProviderType.Postal,
+            messageId: result.value.messageId,
+            postalMessageIds: result.value.postalMessageIds,
           },
         },
       });

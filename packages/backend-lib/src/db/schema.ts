@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   foreignKey,
   index,
@@ -1173,5 +1174,34 @@ export const workspaceOccupantSetting = pgTable(
     })
       .onUpdate("cascade")
       .onDelete("set null"),
+  ],
+);
+
+export const postalMessageMappings = pgTable(
+  "PostalMessageMappings",
+  {
+    postalMessageId: bigint({ mode: "number" }).primaryKey(),
+    workspaceId: uuid().notNull(),
+    userId: text().notNull(),
+    messageId: text().notNull(),
+    templateId: text(),
+    journeyId: text(),
+    nodeId: text(),
+    broadcastId: text(),
+    runId: text(),
+    createdAt: timestamp({ precision: 3, mode: "date" }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("PostalMessageMappings_workspaceId_idx").using(
+      "btree",
+      table.workspaceId.asc().nullsLast().op("uuid_ops"),
+    ),
+    foreignKey({
+      columns: [table.workspaceId],
+      foreignColumns: [workspace.id],
+      name: "PostalMessageMappings_workspaceId_fkey",
+    })
+      .onUpdate("cascade")
+      .onDelete("cascade"),
   ],
 );

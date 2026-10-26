@@ -13,6 +13,10 @@ import {
   validSNSSignature,
 } from "backend-lib/src/destinations/amazonses";
 import { submitMailChimpEvents } from "backend-lib/src/destinations/mailchimp";
+import {
+  PostalWebhookBody,
+  submitPostalWebhookEvent,
+} from "backend-lib/src/destinations/postal";
 import { submitPostmarkEvents } from "backend-lib/src/destinations/postmark";
 import {
   getQuoMessageCorrelation,
@@ -34,7 +38,7 @@ import {
   TwilioEventSms,
 } from "backend-lib/src/types";
 import { insertUserEvents } from "backend-lib/src/userEvents";
-import { createHmac } from "crypto";
+import { createHmac, createVerify } from "crypto";
 import { and, eq } from "drizzle-orm";
 import { FastifyInstance } from "fastify";
 import { fastifyRawBody } from "fastify-raw-body";
@@ -115,6 +119,52 @@ export default async function webhookController(fastify: FastifyInstance) {
         });
       }
       return reply.status(200).send();
+    },
+  );
+
+  fastify.withTypeProvider<TypeBoxTypeProvider>().post(
+    "/postal/:secret",
+    {
+      schema: {
+        description: "Used to consume Postal webhook payloads.",
+        tags: ["Webhooks"],
+        body: PostalWebhookBody,
+      },
+    },
+    async (request, reply) => {
+      const { secret } = request.params as { secret: string };
+      const expected = process.env.POSTAL_WEBHOOK_SECRET;
+      if (!expected || secret !== expected) {
+        return reply.status(401).send({ message: "Unauthorized" });
+      }
+      // Optional RSA-SHA256 signature verification when a public key is
+      // configured. The signature is computed by Postal over the raw body.
+      const pubKey = process.env.POSTAL_WEBHOOK_PUBLIC_KEY;
+      if (pubKey) {
+        const signature = request.headers["x-postal-signature-256"];
+        if (typeof signature !== "string") {
+          return reply.status(401).send({ message: "Invalid signature" });
+        }
+        const rawBody = request.rawBody ?? JSON.stringify(request.body);
+        const verifier = createVerify("RSA-SHA256");
+        verifier.update(
+          Buffer.isBuffer(rawBody) ? rawBody.toString("utf8") : rawBody,
+          "utf8",
+        );
+        const verified = verifier.verify(pubKey, signature, "base64");
+        if (!verified) {
+          return reply.status(401).send({ message: "Invalid signature" });
+        }
+      }
+      const result = await submitPostalWebhookEvent({ body: request.body });
+      if (result.isErr()) {
+        logger().info({ err: result.error }, "Error handling postal webhook.");
+        if (/not found/i.test(result.error.message)) {
+          return reply.status(500).send({ message: result.error.message });
+        }
+        return reply.status(400).send({ message: result.error.message });
+      }
+      return reply.status(200).send({ status: "ok" });
     },
   );
 

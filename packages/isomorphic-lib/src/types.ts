@@ -140,6 +140,7 @@ export const EmailProviderType = {
   Resend: "Resend",
   PostMark: "PostMark",
   Smtp: "Smtp",
+  Postal: "Postal",
   Test: "Test",
   MailChimp: "MailChimp",
   Gmail: "Gmail",
@@ -157,6 +158,7 @@ export const WorkspaceWideEmailProviderType = {
   Resend: EmailProviderType.Resend,
   PostMark: EmailProviderType.PostMark,
   Smtp: EmailProviderType.Smtp,
+  Postal: EmailProviderType.Postal,
   Test: EmailProviderType.Test,
   MailChimp: EmailProviderType.MailChimp,
 } as const;
@@ -4025,6 +4027,14 @@ export const EmailSmtpSuccess = Type.Object({
 
 export type EmailSmtpSuccess = Static<typeof EmailSmtpSuccess>;
 
+export const EmailPostalSuccess = Type.Object({
+  type: Type.Literal(EmailProviderType.Postal),
+  messageId: Type.Optional(Type.String()),
+  postalMessageIds: Type.Array(Type.Integer()),
+});
+
+export type EmailPostalSuccess = Static<typeof EmailPostalSuccess>;
+
 export const EmailResendSuccess = Type.Object({
   type: Type.Literal(EmailProviderType.Resend),
 });
@@ -4051,6 +4061,7 @@ export const EmailServiceProviderSuccess = Type.Union([
   EmailResendSuccess,
   EmailGmailSuccess,
   EmailSmtpSuccess,
+  EmailPostalSuccess,
   EmailTestSuccess,
 ]);
 
@@ -4331,6 +4342,14 @@ export const MessageSmtpFailure = Type.Object({
 
 export type MessageSmtpFailure = Static<typeof MessageSmtpFailure>;
 
+export const MessagePostalFailure = Type.Object({
+  type: Type.Literal(EmailProviderType.Postal),
+  message: Type.String(),
+  status: Type.Optional(Type.Integer()),
+});
+
+export type MessagePostalFailure = Static<typeof MessagePostalFailure>;
+
 export const MessageResendFailure = Type.Object({
   type: Type.Literal(EmailProviderType.Resend),
   message: Type.String(),
@@ -4362,6 +4381,7 @@ export const EmailServiceProviderFailure = Type.Union([
   MessageResendFailure,
   MessagePostMarkFailure,
   MessageSmtpFailure,
+  MessagePostalFailure,
   MessageGmailServiceFailure,
 ]);
 
@@ -4804,6 +4824,14 @@ export type SmtpSecret = Static<typeof SmtpSecret>;
 
 export type SmtpSecretKey = keyof Omit<SmtpSecret, "type">;
 
+export const PostalSecret = Type.Object({
+  type: Type.Literal(EmailProviderType.Postal),
+  apiKey: Type.Optional(Type.String()),
+  baseUrl: Type.Optional(Type.String()),
+});
+
+export type PostalSecret = Static<typeof PostalSecret>;
+
 export const WebhookSecret = Type.Intersect([
   Type.Record(Type.String(), Type.String()),
   Type.Object({
@@ -4821,6 +4849,7 @@ export const EmailProviderSecret = Type.Union([
   PostMarkSecret,
   AmazonSesSecret,
   SmtpSecret,
+  PostalSecret,
   ResendSecret,
   TestEmailSecret,
   GmailSecret,

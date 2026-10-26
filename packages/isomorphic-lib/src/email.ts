@@ -57,6 +57,8 @@ export function emailProviderLabel(provider: EmailProviderTypeSchema): string {
       return "Resend";
     case EmailProviderType.Smtp:
       return "SMTP";
+    case EmailProviderType.Postal:
+      return "Postal";
     case EmailProviderType.MailChimp:
       return "Mailchimp";
     case EmailProviderType.Gmail:
